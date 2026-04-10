@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Download, Printer, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { exportServiceFeeReport, toChineseAmount } from "@/lib/exportExcel";
 
 const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
 
@@ -45,7 +45,10 @@ export default function ReportFee() {
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
             <Printer className="w-4 h-4" />列印
           </Button>
-          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={() => toast.info("將使用 SheetJS 匯出 xlsx")}>
+          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={() => exportServiceFeeReport(
+            monthData.map(w => ({ workerId: w.id, workerName: w.name, workerType: w.type, area: w.area, totalPoints: w.pts, pointRate: POINT_RATE, serviceFee: w.fee })),
+            selectedMonth
+          )}>
             <Download className="w-4 h-4" />匯出 xlsx
           </Button>
         </div>
@@ -118,9 +121,14 @@ export default function ReportFee() {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-3 border-t border-border/30 flex items-center gap-2 text-xs text-muted-foreground print:hidden">
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>資料來源：Google Sheets「服務費統計表」分頁 | 點數單價：{POINT_RATE} 元/點</span>
+        <div className="px-4 py-3 border-t border-border/30 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground print:hidden">
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span>資料來源：Google Sheets「服務費統計表」分頁 | 點數單價：{POINT_RATE} 元/點</span>
+          </div>
+          <div className="text-xs font-medium text-foreground">
+            本月服務費合計：<span className="font-bold text-emerald-700">{toChineseAmount(grandFee)}</span>
+          </div>
         </div>
       </div>
     </div>

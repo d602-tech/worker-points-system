@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Download, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { exportLeaveStatReport } from "@/lib/exportExcel";
 
 const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
 const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "暠職"];
@@ -32,7 +32,15 @@ export default function ReportLeave() {
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
             <Printer className="w-4 h-4" />列印
           </Button>
-          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={() => toast.info("將使用 SheetJS 匯出 xlsx")}>
+          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={() => exportLeaveStatReport(
+            MOCK_DATA.map(w => ({
+              workerId: w.id, workerName: w.name, department: w.type, onboardDate: '2024-01-01',
+              expDays: 365, annualLeaveEntitled: 7, annualLeaveUsed: w.leave['特休'],
+              annualLeaveRemaining: 7 - w.leave['特休'], workDays: w.leave['上班'],
+              totalLeaveDays: Object.entries(w.leave).filter(([k]) => k !== '上班').reduce((s, [,v]) => s + v, 0),
+            })),
+            selectedMonth
+          )}>
             <Download className="w-4 h-4" />匯出 xlsx
           </Button>
         </div>

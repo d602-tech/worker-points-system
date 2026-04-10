@@ -1,13 +1,19 @@
 /**
  * 115年度協助員點數管理系統
- * Google Apps Script 初始化腳本
- * 
+ * Google Apps Script 初始化腳本 v1.1
+ *
+ * 修正紀錄：
+ *   v1.1 - 修正 CORS header 寫法（改用 HtmlService 方式）
+ *        - 修正 createDriveFolders 補齊「佐證檔案」子資料夾
+ *        - 補齊 seedSystemConfig 中的 GAS_WEB_APP_URL 欄位
+ *        - 更新 seedPointDefinitions 為四種角色共 49 筆真實資料
+ *
  * 使用方式：
  * 1. 開啟 Google Sheets → 擴充功能 → Apps Script
- * 2. 貼上此腳本全文
+ * 2. 貼上此腳本全文（取代舊版內容）
  * 3. 執行 initAll() 函式
  * 4. 部署為 Web App（執行身份：我、存取：任何人）
- * 5. 複製 Web App URL 填入系統設定頁面
+ * 5. 複製 Web App URL，填入系統設定頁面的 GAS_WEB_APP_URL 欄位
  */
 
 // ============================================================
@@ -31,7 +37,7 @@ const DRIVE_FOLDER_NAME = "115年度協助員點數管理系統";
 // ============================================================
 function initAll() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  Logger.log("=== 開始初始化 115年度協助員點數管理系統 ===");
+  Logger.log("=== 開始初始化 115年度協助員點數管理系統 v1.1 ===");
 
   // 1. 建立所有分頁
   createAllSheets(ss);
@@ -39,27 +45,29 @@ function initAll() {
   // 2. 寫入欄位標頭
   setupHeaders(ss);
 
-  // 3. 寫入點數定義種子資料
+  // 3. 寫入點數定義種子資料（四種角色 49 筆）
   seedPointDefinitions(ss);
 
-  // 4. 寫入系統設定種子資料
+  // 4. 寫入系統設定種子資料（含 GAS_WEB_APP_URL 欄位）
   seedSystemConfig(ss);
 
-  // 5. 建立 Google Drive 資料夾結構
-  const folderId = createDriveFolders();
+  // 5. 建立 Google Drive 資料夾結構（含「佐證檔案」子資料夾）
+  const result = createDriveFolders();
 
   // 6. 將 Drive 資料夾 ID 寫回系統設定
-  const configSheet = ss.getSheetByName(SHEET_NAMES.CONFIG);
-  if (configSheet) {
-    configSheet.getRange("B2").setValue(folderId);
-  }
+  updateConfigValue(ss, "Drive資料夾ID", result.folderId);
 
-  Logger.log("=== 初始化完成！Drive 資料夾 ID: " + folderId + " ===");
+  Logger.log("=== 初始化完成！Drive 佐證資料夾 ID: " + result.folderId + " ===");
   SpreadsheetApp.getUi().alert(
-    "初始化完成！\n\n" +
-    "Google Drive 資料夾 ID：" + folderId + "\n\n" +
-    "請記錄此 ID，並填入系統設定頁面的「Google Drive 資料夾 ID」欄位。\n\n" +
-    "接下來請部署此腳本為 Web App，並將 URL 填入系統設定頁面。"
+    "✅ 初始化完成！\n\n" +
+    "【重要】請記錄以下資訊：\n\n" +
+    "① Google Drive 佐證資料夾 ID：\n" + result.folderId + "\n\n" +
+    "② 主資料夾 ID：\n" + result.mainFolderId + "\n\n" +
+    "接下來請：\n" +
+    "1. 部署此腳本為 Web App（部署 → 新增部署作業 → 網頁應用程式）\n" +
+    "2. 執行身份選「我」、存取選「所有人」\n" +
+    "3. 複製 Web App URL\n" +
+    "4. 在系統設定頁面填入 GAS_WEB_APP_URL 欄位"
   );
 }
 
@@ -81,7 +89,7 @@ function createAllSheets(ss) {
   // 移除預設的 Sheet1（若存在且為空）
   const defaultSheet = ss.getSheetByName("工作表1") || ss.getSheetByName("Sheet1");
   if (defaultSheet && defaultSheet.getLastRow() === 0) {
-    ss.deleteSheet(defaultSheet);
+    try { ss.deleteSheet(defaultSheet); } catch(e) {}
   }
 }
 
@@ -117,8 +125,8 @@ function setupHeaders(ss) {
        "審核動作", "審核人工號", "審核人姓名", "審核時間", "退回原因", "備註"]
     ],
     [SHEET_NAMES.POINT_DEFS]: [
-      ["點數代碼", "類別", "項目名稱", "點數", "單位", "說明",
-       "適用協助員類型", "是否需要佐證", "狀態", "建立時間"]
+      ["點數代碼", "類別", "工作項目名稱", "點數", "備註說明",
+       "適用角色", "是否需要佐證", "狀態", "建立時間"]
     ],
     [SHEET_NAMES.FILE_INDEX]: [
       ["檔案ID", "明細ID", "工號", "日期", "原始檔名", "Drive檔案ID",
@@ -130,20 +138,16 @@ function setupHeaders(ss) {
     const sheet = ss.getSheetByName(sheetName);
     if (!sheet) return;
 
-    // 只在第一行為空時寫入標頭
     if (sheet.getLastRow() === 0) {
       sheet.getRange(1, 1, headerRows.length, headerRows[0].length)
            .setValues(headerRows);
 
-      // 設定標頭樣式
       const headerRange = sheet.getRange(1, 1, 1, headerRows[0].length);
       headerRange.setBackground("#1e3a5f");
       headerRange.setFontColor("#ffffff");
       headerRange.setFontWeight("bold");
       headerRange.setFontSize(10);
       sheet.setFrozenRows(1);
-
-      // 自動調整欄寬
       sheet.autoResizeColumns(1, headerRows[0].length);
       Logger.log("設定標頭：" + sheetName);
     }
@@ -151,233 +155,314 @@ function setupHeaders(ss) {
 }
 
 // ============================================================
-// 種子資料：點數定義表（51 筆）
+// 種子資料：點數定義表
+// 四種角色共 49 筆（依使用者提供之真實資料）
+// 欄位順序：點數代碼, 類別, 工作項目名稱, 點數, 備註說明, 適用角色, 是否需要佐證, 狀態, 建立時間
 // ============================================================
 function seedPointDefinitions(ss) {
   const sheet = ss.getSheetByName(SHEET_NAMES.POINT_DEFS);
-  if (!sheet || sheet.getLastRow() > 1) {
-    Logger.log("點數定義表已有資料，略過種子資料");
+  if (!sheet) return;
+  if (sheet.getLastRow() > 1) {
+    Logger.log("點數定義表已有資料，略過種子資料（若需重置請先清除第2列以後的資料）");
     return;
   }
 
   const now = new Date().toISOString().split("T")[0];
-  const defs = [
-    // A 類 — 工地作業協助
-    ["A1",  "A", "工地清潔與整理",           1200, "次", "工地環境清潔、廢棄物清除",         "一般工地協助員", true,  "啟用", now],
-    ["A2",  "A", "工具整理與歸還",             800, "次", "工具盤點、清潔、歸還工具房",       "一般工地協助員", true,  "啟用", now],
-    ["A3",  "A", "材料搜選與進場驗收",        1500, "次", "協助材料驗收、搬運、入庫",         "一般工地協助員", true,  "啟用", now],
-    ["A4",  "A", "施工區域圍籬設置",          1800, "次", "安全圍籬架設與拆除",               "一般工地協助員", true,  "啟用", now],
-    ["A5",  "A", "廢棄物分類與清運",          1000, "次", "廢棄物分類、袋裝、清運配合",       "一般工地協助員", true,  "啟用", now],
-    ["A6",  "A", "臨時設施搭設協助",          2000, "次", "臨時辦公室、倉庫搭設協助",         "一般工地協助員", true,  "啟用", now],
-    ["A7",  "A", "施工機具操作協助",          2500, "次", "挖土機、吊車等機具操作輔助",       "一般工地協助員", true,  "啟用", now],
-    ["A8",  "A", "混凝土澆置協助",            2200, "次", "混凝土攪拌、澆置、整平協助",       "一般工地協助員", true,  "啟用", now],
-    ["A9",  "A", "鋼筋綁紮協助",              2800, "次", "鋼筋裁切、彎折、綁紮協助",         "一般工地協助員", true,  "啟用", now],
-    ["A10", "A", "模板組立協助",              2600, "次", "模板組立、拆除、清潔",             "一般工地協助員", true,  "啟用", now],
 
-    // B 類 — 安全衛生
-    ["B1",  "B", "安全訓練參與",              3000, "次", "參與工地安全訓練課程（全日）",     "全體協助員",     true,  "啟用", now],
-    ["B2",  "B", "安全設備檢查",              2000, "次", "安全帽、安全帶、防護具檢查",       "全體協助員",     true,  "啟用", now],
-    ["B3",  "B", "危險區域標示維護",          1500, "次", "警示標誌、護欄維護更新",           "全體協助員",     true,  "啟用", now],
-    ["B4",  "B", "急救訓練參與",              3500, "次", "CPR、AED、急救訓練（半日）",       "全體協助員",     true,  "啟用", now],
-    ["B5",  "B", "安全巡查協助",              1800, "次", "協助工地安全巡查、紀錄異常",       "全體協助員",     true,  "啟用", now],
-    ["B6",  "B", "消防設備檢查",              2000, "次", "滅火器、消防栓等設備定期檢查",     "全體協助員",     true,  "啟用", now],
-    ["B7",  "B", "職災通報協助",              2500, "次", "協助職業災害通報、現場保全",       "全體協助員",     false, "啟用", now],
-    ["B8",  "B", "安全教育宣導",              1200, "次", "協助安全教育宣導資料發放",         "全體協助員",     false, "啟用", now],
-
-    // C 類 — 機電作業
-    ["C1",  "C", "機電設備維護協助",          2500, "次", "馬達、幫浦等設備維護輔助",         "機電協助員",     true,  "啟用", now],
-    ["C2",  "C", "電氣配線協助",              3500, "次", "電纜佈線、接線、測試協助",         "機電協助員",     true,  "啟用", now],
-    ["C3",  "C", "儀表校正協助",              3000, "次", "壓力錶、流量計等儀表校正輔助",     "機電協助員",     true,  "啟用", now],
-    ["C4",  "C", "管路安裝協助",              2800, "次", "管路切割、套絲、安裝協助",         "機電協助員",     true,  "啟用", now],
-    ["C5",  "C", "設備試運轉協助",            4000, "次", "新裝設備試運轉測試輔助",           "機電協助員",     true,  "啟用", now],
-    ["C6",  "C", "電氣盤體維護",              3200, "次", "配電盤、控制盤清潔維護",           "機電協助員",     true,  "啟用", now],
-    ["C7",  "C", "接地電阻量測協助",          2000, "次", "接地系統電阻值量測輔助",           "機電協助員",     true,  "啟用", now],
-    ["C8",  "C", "機電圖說整理",              1500, "次", "機電竣工圖、維護手冊整理歸檔",     "機電協助員",     false, "啟用", now],
-
-    // D 類 — 行政作業
-    ["D1",  "D", "行政文件處理",              1000, "次", "公文收發、歸檔、影印",             "行政協助員",     false, "啟用", now],
-    ["D2",  "D", "會議記錄協助",              1500, "次", "工地會議記錄、整理、發送",         "行政協助員",     false, "啟用", now],
-    ["D3",  "D", "採購作業協助",              1200, "次", "材料採購詢價、比價、訂購協助",     "行政協助員",     true,  "啟用", now],
-    ["D4",  "D", "工程照片整理",               800, "次", "施工照片拍攝、整理、歸檔",         "行政協助員",     false, "啟用", now],
-    ["D5",  "D", "進度報告協助",              2000, "次", "工程進度報告製作協助",             "行政協助員",     false, "啟用", now],
-    ["D6",  "D", "廠商聯繫協助",              1000, "次", "廠商電話聯繫、訪廠記錄",           "行政協助員",     false, "啟用", now],
-    ["D7",  "D", "合約文件管理",              1500, "次", "合約文件建檔、追蹤、管理",         "行政協助員",     false, "啟用", now],
-    ["D8",  "D", "費用核銷協助",              1200, "次", "差旅費、材料費核銷單據整理",       "行政協助員",     true,  "啟用", now],
-    ["D9",  "D", "人員出勤統計",               800, "次", "協助員出勤紀錄統計製表",           "行政協助員",     false, "啟用", now],
-    ["D10", "D", "倉庫盤點協助",              1000, "次", "材料、工具倉庫定期盤點協助",       "行政協助員",     true,  "啟用", now],
-
-    // S 類 — 特殊貢獻
-    ["S1",  "S", "特殊貢獻加分",              5000, "項", "對工程品質有特殊貢獻（主管核定）", "全體協助員",     true,  "啟用", now],
-    ["S2",  "S", "緊急搶修協助",              6000, "項", "非工作時間緊急搶修參與",           "全體協助員",     true,  "啟用", now],
-    ["S3",  "S", "技術傳承貢獻",              4000, "項", "協助新進人員技術指導",             "全體協助員",     false, "啟用", now],
-    ["S4",  "S", "改善提案採用",              3500, "項", "提出並獲採用之工作改善提案",       "全體協助員",     true,  "啟用", now],
-    ["S5",  "S", "優良工作表現",              3000, "項", "月度優良工作表現獎勵",             "全體協助員",     false, "啟用", now],
-    ["S6",  "S", "跨部門支援",                2500, "項", "跨部門緊急支援協助",               "全體協助員",     true,  "啟用", now],
-    ["S7",  "S", "客戶滿意度貢獻",            4500, "項", "獲客戶書面肯定之工作表現",         "全體協助員",     true,  "啟用", now],
-
-    // P 類 — 專案協助
-    ["P1",  "P", "專案協助加分",              4000, "項", "重要專案協助（專案主管核定）",     "全體協助員",     true,  "啟用", now],
-    ["P2",  "P", "試運轉專案協助",            5000, "項", "機組試運轉專案全程協助",           "全體協助員",     true,  "啟用", now],
-    ["P3",  "P", "環保稽查協助",              3000, "項", "環保主管機關稽查配合協助",         "全體協助員",     true,  "啟用", now],
-    ["P4",  "P", "職安衛稽查協助",            3000, "項", "職安衛主管機關稽查配合協助",       "全體協助員",     true,  "啟用", now],
-    ["P5",  "P", "重大維修專案",              6000, "項", "機組大修或重大維修專案協助",       "全體協助員",     true,  "啟用", now],
-    ["P6",  "P", "ISO 稽核協助",              2500, "項", "ISO 系統稽核文件準備協助",         "行政協助員",     true,  "啟用", now],
-    ["P7",  "P", "節能減碳專案",              3500, "項", "節能減碳相關專案協助",             "全體協助員",     true,  "啟用", now],
+  // ── 1. 一般工地協助員 (General) ──────────────────────────
+  const general = [
+    ["G-A1-01", "A1", "自動檢查與工地巡檢",                       800,  "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-A1-02", "A1", "危害告知與高風險作業管制與監督",             400,  "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-A1-03", "A1", "承攬商每日作業安全循環之監督與協調",         200,  "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-A1-04", "A1", "工地監看與職安環保管控",                     150,  "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-A2-01", "A2", "天然災害停止上班遠端作業(颱風假、豪雨假等)", 1400, "",                                       "一般工地協助員", false, "啟用", now],
+    ["G-B1-01", "B1", "進場資格與16專卷審查",                      4000, "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-B1-02", "B1", "設備設施安全稽核",                          3000, "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-B1-03", "B1", "協議組織運作與績效分析",                    3000, "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-B1-04", "B1", "職安衛文書作業與水平展開",                  2900, "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-B2-01", "B2", "春節期間強化作業",                          5000, "",                                       "一般工地協助員", true,  "啟用", now],
+    ["G-C-01",  "C",  "臨時交辦與績效",                            5000, "評核標準：優 5000 / 佳 3000 / 平 2000",  "一般工地協助員", false, "啟用", now],
+    ["G-S-01",  "S",  "特休代付款",                                 220, "單位：小時",                             "一般工地協助員", false, "啟用", now],
+    ["G-P-01",  "P",  "懲罰性違約金 (未派員履約)",                  220, "單位：小時",                             "一般工地協助員", false, "啟用", now],
   ];
 
-  sheet.getRange(2, 1, defs.length, defs[0].length).setValues(defs);
-  Logger.log("寫入點數定義種子資料：" + defs.length + " 筆");
+  // ── 2. 離島工地協助員 (Offshore) ─────────────────────────
+  const offshore = [
+    ["O-A1-01", "A1", "自動檢查與工地巡檢",                       1060, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-A1-02", "A1", "危害告知與高風險作業管制與監督",             530,  "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-A1-03", "A1", "承攬商每日作業安全循環之監督與協調",         300,  "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-A1-04", "A1", "工地監看與職安環保管控",                     210,  "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-A2-01", "A2", "天然災害停止上班遠端作業(颱風假、豪雨假等)", 1800, "",                                       "離島工地協助員", false, "啟用", now],
+    ["O-B1-01", "B1", "進場資格與16專卷審查",                      5000, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-B1-02", "B1", "設備設施安全稽核",                          4000, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-B1-03", "B1", "協議組織運作與績效分析",                    4000, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-B1-04", "B1", "職安衛文書作業與水平展開",                  3600, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-B2-01", "B2", "春節期間強化作業",                          7000, "",                                       "離島工地協助員", true,  "啟用", now],
+    ["O-C-01",  "C",  "臨時交辦與績效",                            7200, "評核標準：優 7200 / 佳 5200 / 平 4200",  "離島工地協助員", false, "啟用", now],
+    ["O-S-01",  "S",  "特休代付款",                                 290, "單位：小時",                             "離島工地協助員", false, "啟用", now],
+    ["O-P-01",  "P",  "懲罰性違約金 (未派員履約)",                  290, "單位：小時",                             "離島工地協助員", false, "啟用", now],
+  ];
+
+  // ── 3. 職安業務兼管理員 (Safety) ─────────────────────────
+  const safety = [
+    ["S-A1-01", "A1", "確認協助員每日上傳狀況並追蹤",              600,  "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-A1-02", "A1", "走動管理及工安查核追蹤",                    500,  "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-A2-01", "A2", "天然災害停止上班遠端作業(颱風假、豪雨假等)", 1000, "",                                       "職安業務兼管理員", false, "啟用", now],
+    ["S-B1-01", "B1", "缺失或宣導製作簡報",                        2000, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-B1-02", "B1", "職安類週/月/季及年報彙整",                 10800, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-B1-03", "B1", "職安管理系統文件統計分析",                  1000, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-B1-04", "B1", "廠商管理人每月計價作業",                    4500, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-B1-05", "B1", "出勤調度與差勤抽查",                         500, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-B2-01", "B2", "春節期間防護檢核資料彙整",                  4000, "",                                       "職安業務兼管理員", true,  "啟用", now],
+    ["S-C-01",  "C",  "臨時交辦與績效",                            5000, "評核標準：優 5000 / 佳 3000 / 平 2000",  "職安業務兼管理員", false, "啟用", now],
+    ["S-S-01",  "S",  "特休代付款",                                 200, "單位：小時",                             "職安業務兼管理員", false, "啟用", now],
+    ["S-P-01",  "P",  "懲罰性違約金 (未派員履約)",                  200, "單位：小時",                             "職安業務兼管理員", false, "啟用", now],
+  ];
+
+  // ── 4. 環保業務人員 (Environment) ────────────────────────
+  const environment = [
+    ["E-A1-01", "A1", "環保行政業務",                               500, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-A2-01", "A2", "天然災害停止上班遠端作業(颱風假、豪雨假等)",  400, "",                                       "環保業務人員", false, "啟用", now],
+    ["E-B1-01", "B1", "行政文書核心",                             29500, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-B2-01", "B2", "春節期間防護檢核資料彙整",                  2000, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-C-01",  "C",  "臨時交辦與績效",                            2000, "評核標準：優 2000 / 佳 1000 / 平 500",   "環保業務人員", false, "啟用", now],
+    ["E-D1-01", "D1", "環境管理方案執行績效管制",                   100, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D1-02", "D1", "監督與量測計畫及實施",                       100, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D1-03", "D1", "法規鑑別與守規性之評估作業程序書作業",       250, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D2-01", "D2", "環境審查作業程序書作業",                     800, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D2-02", "D2", "管理階層審查會議資料準備",                   400, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D2-03", "D2", "內部稽核文件整理準備",                       900, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-S-01",  "S",  "特休代付款",                                 190, "單位：小時",                             "環保業務人員", false, "啟用", now],
+    ["E-P-01",  "P",  "懲罰性違約金 (未派員履約)",                  190, "單位：小時",                             "環保業務人員", false, "啟用", now],
+  ];
+
+  const allDefs = [...general, ...offshore, ...safety, ...environment];
+  sheet.getRange(2, 1, allDefs.length, allDefs[0].length).setValues(allDefs);
+  Logger.log("寫入點數定義種子資料：" + allDefs.length + " 筆（四種角色）");
 }
 
 // ============================================================
-// 種子資料：系統設定
+// 種子資料：系統設定（含 GAS_WEB_APP_URL 欄位）
 // ============================================================
 function seedSystemConfig(ss) {
   const sheet = ss.getSheetByName(SHEET_NAMES.CONFIG);
-  if (!sheet || sheet.getLastRow() > 1) {
+  if (!sheet) return;
+  if (sheet.getLastRow() > 1) {
     Logger.log("系統設定已有資料，略過種子資料");
     return;
   }
 
   const configs = [
-    ["系統年度",    "115",    "系統適用年度"],
-    ["Drive資料夾ID", "",     "佐證檔案上傳目標資料夾（由 initAll 自動填入）"],
-    ["點數單價",    "0.01",   "每點換算服務費（元）"],
-    ["機構名稱",    "綜合施工處", "機構名稱"],
-    ["機構代碼",    "CPC",    "機構代碼"],
-    ["系統版本",    "1.0.0",  "系統版本號"],
-    ["初始化時間",  new Date().toISOString(), "系統初始化時間"],
+    ["系統年度",        "115",                       "系統適用年度（民國）"],
+    ["Drive資料夾ID",   "",                          "佐證檔案上傳目標資料夾（由 initAll 自動填入）"],
+    ["GAS_WEB_APP_URL", "",                          "GAS 部署後的 Web App URL（部署完成後請手動填入）"],
+    ["點數單價",        "0.01",                      "每點換算服務費（元）"],
+    ["機構名稱",        "綜合施工處",                "機構名稱"],
+    ["機構代碼",        "CPC",                       "機構代碼"],
+    ["系統版本",        "1.1.0",                     "系統版本號"],
+    ["初始化時間",      new Date().toISOString(),    "系統初始化時間"],
+    ["一般工地協助員_月薪基準", "220",               "一般工地協助員每小時費率（元）"],
+    ["離島工地協助員_月薪基準", "290",               "離島工地協助員每小時費率（元）"],
+    ["職安業務兼管理員_月薪基準","200",              "職安業務兼管理員每小時費率（元）"],
+    ["環保業務人員_月薪基準",   "190",               "環保業務人員每小時費率（元）"],
   ];
 
   sheet.getRange(2, 1, configs.length, 3).setValues(configs);
-  Logger.log("寫入系統設定種子資料");
+  Logger.log("寫入系統設定種子資料：" + configs.length + " 筆（含 GAS_WEB_APP_URL）");
+}
+
+// ============================================================
+// 更新系統設定中的單一欄位值
+// ============================================================
+function updateConfigValue(ss, key, value) {
+  const sheet = ss.getSheetByName(SHEET_NAMES.CONFIG);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) {
+      sheet.getRange(i + 1, 2).setValue(value);
+      Logger.log("更新設定：" + key + " = " + value);
+      return;
+    }
+  }
+  // 若不存在則新增
+  sheet.appendRow([key, value, ""]);
+  Logger.log("新增設定：" + key + " = " + value);
 }
 
 // ============================================================
 // 建立 Google Drive 資料夾結構
+// 修正：在主資料夾下先建立「佐證檔案」子資料夾，再在其下建立月份資料夾
+// 回傳：{ mainFolderId, folderId }
+//   mainFolderId = 主資料夾 ID
+//   folderId     = 「佐證檔案」資料夾 ID（寫入系統設定）
 // ============================================================
 function createDriveFolders() {
   const root = DriveApp.getRootFolder();
   let mainFolder;
 
-  // 檢查是否已存在
-  const existing = root.getFoldersByName(DRIVE_FOLDER_NAME);
-  if (existing.hasNext()) {
-    mainFolder = existing.next();
+  // 建立或取得主資料夾
+  const existingMain = root.getFoldersByName(DRIVE_FOLDER_NAME);
+  if (existingMain.hasNext()) {
+    mainFolder = existingMain.next();
     Logger.log("Drive 主資料夾已存在：" + mainFolder.getId());
   } else {
     mainFolder = root.createFolder(DRIVE_FOLDER_NAME);
     Logger.log("建立 Drive 主資料夾：" + mainFolder.getId());
   }
 
-  // 建立子資料夾（按年月）
-  const subFolders = ["2026-01", "2026-02", "2026-03", "2026-04",
-                      "2026-05", "2026-06", "2026-07", "2026-08",
-                      "2026-09", "2026-10", "2026-11", "2026-12"];
+  // ── 修正：建立「佐證檔案」中間層資料夾 ──
+  let evidenceFolder;
+  const existingEvidence = mainFolder.getFoldersByName("佐證檔案");
+  if (existingEvidence.hasNext()) {
+    evidenceFolder = existingEvidence.next();
+    Logger.log("「佐證檔案」資料夾已存在：" + evidenceFolder.getId());
+  } else {
+    evidenceFolder = mainFolder.createFolder("佐證檔案");
+    Logger.log("建立「佐證檔案」資料夾：" + evidenceFolder.getId());
+  }
 
-  subFolders.forEach(name => {
-    const existing = mainFolder.getFoldersByName(name);
+  // 在「佐證檔案」下建立月份子資料夾
+  const months = [
+    "2026-01", "2026-02", "2026-03", "2026-04",
+    "2026-05", "2026-06", "2026-07", "2026-08",
+    "2026-09", "2026-10", "2026-11", "2026-12"
+  ];
+
+  months.forEach(name => {
+    const existing = evidenceFolder.getFoldersByName(name);
     if (!existing.hasNext()) {
-      mainFolder.createFolder(name);
-      Logger.log("建立子資料夾：" + name);
+      evidenceFolder.createFolder(name);
+      Logger.log("建立月份子資料夾：佐證檔案/" + name);
     }
   });
 
-  return mainFolder.getId();
+  // 設定「佐證檔案」資料夾共用（知道連結者可編輯）
+  try {
+    evidenceFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+    Logger.log("已設定「佐證檔案」資料夾共用權限");
+  } catch(e) {
+    Logger.log("設定共用權限失敗（可能需手動設定）：" + e.message);
+  }
+
+  return {
+    mainFolderId: mainFolder.getId(),
+    folderId: evidenceFolder.getId()
+  };
 }
 
 // ============================================================
-// Web App 入口：doGet / doPost
+// Web App 入口：doGet
+// 修正：移除 output.setHeader()（GAS ContentService 不支援此方法）
+//       改用標準 ContentService 輸出，GAS Web App 本身已允許跨域存取
 // ============================================================
 function doGet(e) {
   const action = e.parameter.action || "";
 
-  if (action === "ping") {
-    return ContentService.createTextOutput(
-      JSON.stringify({ status: "ok", message: "GAS API 運作正常", timestamp: new Date().toISOString() })
-    ).setMimeType(ContentService.MimeType.JSON);
-  }
+  try {
+    let data;
 
-  if (action === "getWorkers") {
-    return jsonResponse(getWorkers());
-  }
+    switch (action) {
+      case "ping":
+        data = { status: "ok", message: "GAS API 運作正常", timestamp: new Date().toISOString() };
+        break;
+      case "getWorkers":
+        data = getWorkers();
+        break;
+      case "getPointDefs":
+        data = getPointDefs();
+        break;
+      case "getAttendance":
+        data = getAttendance(e.parameter.workerId, e.parameter.month);
+        break;
+      case "getDailyPoints":
+        data = getDailyPoints(e.parameter.workerId, e.parameter.date);
+        break;
+      case "getMonthlyPoints":
+        data = getMonthlyPoints(e.parameter.workerId, e.parameter.month);
+        break;
+      case "getConfig":
+        data = getConfig();
+        break;
+      case "getFileIndex":
+        data = getFileIndex(e.parameter.workerId, e.parameter.date);
+        break;
+      default:
+        data = { success: false, error: "Unknown action: " + action };
+    }
 
-  if (action === "getPointDefs") {
-    return jsonResponse(getPointDefs());
+    return jsonResponse(data);
+  } catch (err) {
+    return jsonResponse({ success: false, error: err.message });
   }
-
-  if (action === "getAttendance") {
-    const workerId = e.parameter.workerId;
-    const month = e.parameter.month;
-    return jsonResponse(getAttendance(workerId, month));
-  }
-
-  if (action === "getDailyPoints") {
-    const workerId = e.parameter.workerId;
-    const date = e.parameter.date;
-    return jsonResponse(getDailyPoints(workerId, date));
-  }
-
-  if (action === "getMonthlyPoints") {
-    const workerId = e.parameter.workerId;
-    const month = e.parameter.month;
-    return jsonResponse(getMonthlyPoints(workerId, month));
-  }
-
-  if (action === "getConfig") {
-    return jsonResponse(getConfig());
-  }
-
-  return jsonResponse({ error: "Unknown action: " + action });
 }
 
+// ============================================================
+// Web App 入口：doPost
+// ============================================================
 function doPost(e) {
   let body;
   try {
     body = JSON.parse(e.postData.contents);
   } catch {
-    return jsonResponse({ error: "Invalid JSON" });
+    return jsonResponse({ success: false, error: "Invalid JSON body" });
   }
 
   const action = body.action || "";
 
-  if (action === "saveAttendance") {
-    return jsonResponse(saveAttendance(body.data));
-  }
+  try {
+    let data;
 
-  if (action === "saveDailyPoints") {
-    return jsonResponse(saveDailyPoints(body.data));
-  }
+    switch (action) {
+      case "saveAttendance":
+        data = saveAttendance(body.data);
+        break;
+      case "saveDailyPoints":
+        data = saveDailyPoints(body.data);
+        break;
+      case "submitMonthlyReport":
+        data = submitMonthlyReport(body.data);
+        break;
+      case "reviewItem":
+        data = reviewItem(body.data);
+        break;
+      case "saveFileIndex":
+        data = saveFileIndex(body.data);
+        break;
+      case "upsertWorker":
+        data = upsertWorker(body.data);
+        break;
+      case "uploadFileToDrive":
+        data = uploadFileToDrive(body.base64Data, body.fileName, body.mimeType, body.workerId, body.date);
+        break;
+      case "updateConfig":
+        data = updateConfig(body.key, body.value);
+        break;
+      default:
+        data = { success: false, error: "Unknown action: " + action };
+    }
 
-  if (action === "submitMonthlyReport") {
-    return jsonResponse(submitMonthlyReport(body.data));
+    return jsonResponse(data);
+  } catch (err) {
+    return jsonResponse({ success: false, error: err.message });
   }
-
-  if (action === "reviewItem") {
-    return jsonResponse(reviewItem(body.data));
-  }
-
-  if (action === "saveFileIndex") {
-    return jsonResponse(saveFileIndex(body.data));
-  }
-
-  if (action === "upsertWorker") {
-    return jsonResponse(upsertWorker(body.data));
-  }
-
-  return jsonResponse({ error: "Unknown action: " + action });
 }
 
 // ============================================================
-// 輔助函式
+// 輔助函式：jsonResponse
+// 修正說明：
+//   ContentService.TextOutput 物件「沒有」setHeader() 方法
+//   正確做法是直接使用 setMimeType(JSON) 即可
+//   GAS Web App 部署為「所有人可存取」時，瀏覽器跨域請求已被允許
 // ============================================================
 function jsonResponse(data) {
-  const output = ContentService.createTextOutput(JSON.stringify(data));
-  output.setMimeType(ContentService.MimeType.JSON);
-  return output;
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function sheetToObjects(sheet) {
+  if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
   const headers = data[0];
@@ -397,56 +482,68 @@ function generateId(prefix) {
 // ============================================================
 function getWorkers() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.WORKERS);
-  return { success: true, data: sheetToObjects(sheet) };
+  return { success: true, data: sheetToObjects(ss.getSheetByName(SHEET_NAMES.WORKERS)) };
 }
 
 function getPointDefs() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.POINT_DEFS);
-  return { success: true, data: sheetToObjects(sheet) };
+  return { success: true, data: sheetToObjects(ss.getSheetByName(SHEET_NAMES.POINT_DEFS)) };
 }
 
 function getAttendance(workerId, month) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.ATTENDANCE);
-  const all = sheetToObjects(sheet);
-  const filtered = all.filter(r =>
-    (!workerId || r["工號"] === workerId) &&
-    (!month || String(r["日期"]).startsWith(month))
-  );
-  return { success: true, data: filtered };
+  const all = sheetToObjects(ss.getSheetByName(SHEET_NAMES.ATTENDANCE));
+  return {
+    success: true,
+    data: all.filter(r =>
+      (!workerId || r["工號"] === workerId) &&
+      (!month || String(r["日期"]).startsWith(month))
+    )
+  };
 }
 
 function getDailyPoints(workerId, date) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.DAILY_POINTS);
-  const all = sheetToObjects(sheet);
-  const filtered = all.filter(r =>
-    (!workerId || r["工號"] === workerId) &&
-    (!date || r["日期"] === date)
-  );
-  return { success: true, data: filtered };
+  const all = sheetToObjects(ss.getSheetByName(SHEET_NAMES.DAILY_POINTS));
+  return {
+    success: true,
+    data: all.filter(r =>
+      (!workerId || r["工號"] === workerId) &&
+      (!date || r["日期"] === date)
+    )
+  };
 }
 
 function getMonthlyPoints(workerId, month) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.MONTHLY_PTS);
-  const all = sheetToObjects(sheet);
-  const filtered = all.filter(r =>
-    (!workerId || r["工號"] === workerId) &&
-    (!month || r["月份"] === month)
-  );
-  return { success: true, data: filtered };
+  const all = sheetToObjects(ss.getSheetByName(SHEET_NAMES.MONTHLY_PTS));
+  return {
+    success: true,
+    data: all.filter(r =>
+      (!workerId || r["工號"] === workerId) &&
+      (!month || r["月份"] === month)
+    )
+  };
 }
 
 function getConfig() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.CONFIG);
-  const rows = sheetToObjects(sheet);
+  const rows = sheetToObjects(ss.getSheetByName(SHEET_NAMES.CONFIG));
   const config = {};
   rows.forEach(r => { config[r["設定項目"]] = r["設定值"]; });
   return { success: true, data: config };
+}
+
+function getFileIndex(workerId, date) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const all = sheetToObjects(ss.getSheetByName(SHEET_NAMES.FILE_INDEX));
+  return {
+    success: true,
+    data: all.filter(r =>
+      (!workerId || r["工號"] === workerId) &&
+      (!date || r["日期"] === date)
+    )
+  };
 }
 
 // ============================================================
@@ -457,13 +554,11 @@ function saveAttendance(data) {
   const sheet = ss.getSheetByName(SHEET_NAMES.ATTENDANCE);
   const now = new Date().toISOString();
   const id = generateId("ATT");
-
   sheet.appendRow([
     id, data.workerId, data.workerName, data.date,
-    data.leaveType, data.hours, data.proxyName || "",
+    data.leaveType, data.hours || 8, data.proxyName || "",
     now, now, data.note || ""
   ]);
-
   return { success: true, id };
 }
 
@@ -472,14 +567,12 @@ function saveDailyPoints(data) {
   const sheet = ss.getSheetByName(SHEET_NAMES.DAILY_POINTS);
   const now = new Date().toISOString();
   const id = generateId("DP");
-
   sheet.appendRow([
     id, data.workerId, data.workerName, data.date,
     data.pointCode, data.category, data.taskName,
     data.points, data.fileCount || 0, "草稿",
     "", "", "", data.note || "", now
   ]);
-
   return { success: true, id };
 }
 
@@ -489,17 +582,17 @@ function submitMonthlyReport(data) {
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
   const statusCol = headers.indexOf("審核狀態") + 1;
+  const workerIdCol = headers.indexOf("工號");
+  const dateCol = headers.indexOf("日期");
+  const statusIdx = headers.indexOf("審核狀態");
 
-  // 更新該工號該月份所有草稿狀態為「已送出」
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (row[headers.indexOf("工號")] === data.workerId &&
-        String(row[headers.indexOf("日期")]).startsWith(data.month) &&
-        row[headers.indexOf("審核狀態")] === "草稿") {
+    if (rows[i][workerIdCol] === data.workerId &&
+        String(rows[i][dateCol]).startsWith(data.month) &&
+        rows[i][statusIdx] === "草稿") {
       sheet.getRange(i + 1, statusCol).setValue("已送出");
     }
   }
-
   return { success: true };
 }
 
@@ -511,25 +604,18 @@ function reviewItem(data) {
   const headers = rows[0];
   const now = new Date().toISOString();
 
-  // 找到對應明細並更新狀態
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][headers.indexOf("明細ID")] === data.itemId) {
-      const statusCol = headers.indexOf("審核狀態") + 1;
-      const reviewerCol = headers.indexOf("審核人") + 1;
-      const reviewTimeCol = headers.indexOf("審核時間") + 1;
-      const rejectReasonCol = headers.indexOf("退回原因") + 1;
-
-      dpSheet.getRange(i + 1, statusCol).setValue(data.action === "approve" ? "已通過" : "已退回");
-      dpSheet.getRange(i + 1, reviewerCol).setValue(data.reviewerName);
-      dpSheet.getRange(i + 1, reviewTimeCol).setValue(now);
+      dpSheet.getRange(i + 1, headers.indexOf("審核狀態") + 1).setValue(data.action === "approve" ? "已通過" : "已退回");
+      dpSheet.getRange(i + 1, headers.indexOf("審核人") + 1).setValue(data.reviewerName);
+      dpSheet.getRange(i + 1, headers.indexOf("審核時間") + 1).setValue(now);
       if (data.action === "reject") {
-        dpSheet.getRange(i + 1, rejectReasonCol).setValue(data.reason || "");
+        dpSheet.getRange(i + 1, headers.indexOf("退回原因") + 1).setValue(data.reason || "");
       }
       break;
     }
   }
 
-  // 寫入審核紀錄
   const rvId = generateId("RV");
   rvSheet.appendRow([
     rvId, data.itemId, data.workerId, data.workerName,
@@ -538,7 +624,6 @@ function reviewItem(data) {
     data.reviewerId, data.reviewerName, now,
     data.reason || "", ""
   ]);
-
   return { success: true, reviewId: rvId };
 }
 
@@ -547,13 +632,11 @@ function saveFileIndex(data) {
   const sheet = ss.getSheetByName(SHEET_NAMES.FILE_INDEX);
   const now = new Date().toISOString();
   const id = generateId("FI");
-
   sheet.appendRow([
     id, data.itemId, data.workerId, data.date,
     data.originalName, data.driveFileId, data.driveFileUrl,
     data.fileType, data.fileSizeKb || 0, now, data.note || ""
   ]);
-
   return { success: true, id };
 }
 
@@ -564,16 +647,14 @@ function upsertWorker(data) {
   const headers = rows[0];
   const now = new Date().toISOString();
 
-  // 查找現有工號
   let found = false;
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][headers.indexOf("工號")] === data.id) {
-      // 更新現有記錄
       const updateMap = {
-        "姓名": data.name, "Email": data.email, "部門": data.department,
+        "姓名": data.name, "Email": data.email || "", "部門": data.department || "",
         "服務區域": data.area, "協助員類型": data.workerType,
-        "到職日期": data.onboardDate, "狀態": data.status,
-        "小計經驗天數": data.pastExpDays, "備註": data.note || "",
+        "到職日期": data.onboardDate, "狀態": data.status || "在職",
+        "小計經驗天數": data.pastExpDays || 0, "備註": data.note || "",
         "更新時間": now
       };
       Object.entries(updateMap).forEach(([key, val]) => {
@@ -586,14 +667,60 @@ function upsertWorker(data) {
   }
 
   if (!found) {
-    // 新增記錄
     sheet.appendRow([
-      data.id, data.name, data.email, data.department,
+      data.id, data.name, data.email || "", data.department || "",
       data.area, data.workerType, data.onboardDate, "",
       data.status || "在職", data.pastExpDays || 0, data.note || "",
       now, now
     ]);
   }
-
   return { success: true, found };
+}
+
+function updateConfig(key, value) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  updateConfigValue(ss, key, value);
+  return { success: true };
+}
+
+// ============================================================
+// Google Drive 檔案上傳
+// ============================================================
+function uploadFileToDrive(base64Data, fileName, mimeType, workerId, date) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const configRows = sheetToObjects(ss.getSheetByName(SHEET_NAMES.CONFIG));
+  const configMap = {};
+  configRows.forEach(r => { configMap[r["設定項目"]] = r["設定值"]; });
+
+  const folderId = configMap["Drive資料夾ID"];
+  if (!folderId) throw new Error("系統設定中未找到 Drive資料夾ID，請先執行 initAll()");
+
+  const folder = DriveApp.getFolderById(folderId);
+  const yearMonth = String(date).substring(0, 7);
+
+  let subFolder;
+  const subFolders = folder.getFoldersByName(yearMonth);
+  if (subFolders.hasNext()) {
+    subFolder = subFolders.next();
+  } else {
+    subFolder = folder.createFolder(yearMonth);
+  }
+
+  const blob = Utilities.newBlob(
+    Utilities.base64Decode(base64Data),
+    mimeType,
+    workerId + "_" + date + "_" + fileName
+  );
+
+  const file = subFolder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return {
+    success: true,
+    fileId: file.getId(),
+    fileName: file.getName(),
+    driveFileUrl: file.getUrl(),
+    viewUrl: "https://drive.google.com/file/d/" + file.getId() + "/view",
+    downloadUrl: "https://drive.google.com/uc?id=" + file.getId() + "&export=download"
+  };
 }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Download, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { exportWorkSummaryReport } from "@/lib/exportExcel";
 
 const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
 
@@ -21,7 +21,16 @@ export default function ReportSummary() {
   const [selectedMonth, setSelectedMonth] = useState("2026-04");
 
   const handleExport = () => {
-    toast.info("將使用 SheetJS 匯出 xlsx，需連接 Google Sheets API 後啟用");
+    exportWorkSummaryReport(
+      monthData.map(w => ({
+        workerId: w.id, workerName: w.name, workerType: w.type, area: w.area,
+        catA: Math.round(w.points * 0.3), catB: Math.round(w.points * 0.2),
+        catC: Math.round(w.points * 0.2), catD: Math.round(w.points * 0.1),
+        catS: Math.round(w.points * 0.1), catP: Math.round(w.points * 0.1),
+        total: w.points,
+      })),
+      selectedMonth
+    );
   };
 
   const handlePrint = () => {
