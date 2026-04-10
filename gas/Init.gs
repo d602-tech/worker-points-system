@@ -1,19 +1,27 @@
 /**
  * 115年度協助員點數管理系統
- * Google Apps Script 初始化腳本 v1.1
+ * Google Apps Script 初始化腳本 v1.2
  *
  * 修正紀錄：
- *   v1.1 - 修正 CORS header 寫法（改用 HtmlService 方式）
+ *   v1.0 - 初始版本
+ *   v1.1 - 修正 CORS header 寫法（移除不支援的 setHeader()）
  *        - 修正 createDriveFolders 補齊「佐證檔案」子資料夾
  *        - 補齊 seedSystemConfig 中的 GAS_WEB_APP_URL 欄位
  *        - 更新 seedPointDefinitions 為四種角色共 49 筆真實資料
+ *   v1.2 - 人員名冊新增「帳號類型」欄位（共 14 欄）
+ *        - upsertWorker 函式對應 14 欄欄位順序（含帳號類型）
+ *        - 修正 E-D1-03 點數項目名稱與點數值
+ *        - TestAccounts.gs 分離為獨立檔案
+ *        - initAll() 提示訊息補充 TestAccounts 執行步驟
  *
  * 使用方式：
  * 1. 開啟 Google Sheets → 擴充功能 → Apps Script
- * 2. 貼上此腳本全文（取代舊版內容）
- * 3. 執行 initAll() 函式
- * 4. 部署為 Web App（執行身份：我、存取：任何人）
- * 5. 複製 Web App URL，填入系統設定頁面的 GAS_WEB_APP_URL 欄位
+ * 2. 在同一個 GAS 專案中建立四個指令碼檔案：
+ *    Init.gs / API.gs / DriveUpload.gs / TestAccounts.gs
+ * 3. 將本檔案內容貼入 Init.gs（取代舊版內容）
+ * 4. 執行 initAll() 函式
+ * 5. 部署為 Web App（執行身份：我、存取：任何人）
+ * 6. 複製 Web App URL，填入系統設定頁面的 GAS_WEB_APP_URL 欄位
  */
 
 // ============================================================
@@ -37,7 +45,7 @@ const DRIVE_FOLDER_NAME = "115年度協助員點數管理系統";
 // ============================================================
 function initAll() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  Logger.log("=== 開始初始化 115年度協助員點數管理系統 v1.1 ===");
+  Logger.log("=== 開始初始化 115年度協助員點數管理系統 v1.2 ===");
 
   // 1. 建立所有分頁
   createAllSheets(ss);
@@ -67,7 +75,8 @@ function initAll() {
     "1. 部署此腳本為 Web App（部署 → 新增部署作業 → 網頁應用程式）\n" +
     "2. 執行身份選「我」、存取選「所有人」\n" +
     "3. 複製 Web App URL\n" +
-    "4. 在系統設定頁面填入 GAS_WEB_APP_URL 欄位"
+    "4. 在系統設定頁面填入 GAS_WEB_APP_URL 欄位\n" +
+    "5. 執行 TestAccounts.gs 中的 setupTestAccounts() 建立測試帳號"
   );
 }
 
@@ -102,7 +111,7 @@ function setupHeaders(ss) {
       ["設定項目", "設定值", "說明"]
     ],
     [SHEET_NAMES.WORKERS]: [
-      ["工號", "姓名", "Email", "部門", "服務區域", "協助員類型", "到職日期",
+      ["工號", "姓名", "帳號類型", "Email", "部門", "服務區域", "協助員類型", "到職日期",
        "離職日期", "狀態", "小計經驗天數", "備註", "建立時間", "更新時間"]
     ],
     [SHEET_NAMES.ATTENDANCE]: [
@@ -228,7 +237,7 @@ function seedPointDefinitions(ss) {
     ["E-C-01",  "C",  "臨時交辦與績效",                            2000, "評核標準：優 2000 / 佳 1000 / 平 500",   "環保業務人員", false, "啟用", now],
     ["E-D1-01", "D1", "環境管理方案執行績效管制",                   100, "",                                       "環保業務人員", true,  "啟用", now],
     ["E-D1-02", "D1", "監督與量測計畫及實施",                       100, "",                                       "環保業務人員", true,  "啟用", now],
-    ["E-D1-03", "D1", "法規鑑別與守規性之評估作業程序書作業",       250, "",                                       "環保業務人員", true,  "啟用", now],
+    ["E-D1-03", "D1", "不符合事項矯正與預防措施",                     100, "",                                       "環保業務人員", true,  "啟用", now],
     ["E-D2-01", "D2", "環境審查作業程序書作業",                     800, "",                                       "環保業務人員", true,  "啟用", now],
     ["E-D2-02", "D2", "管理階層審查會議資料準備",                   400, "",                                       "環保業務人員", true,  "啟用", now],
     ["E-D2-03", "D2", "內部稽核文件整理準備",                       900, "",                                       "環保業務人員", true,  "啟用", now],
@@ -259,7 +268,7 @@ function seedSystemConfig(ss) {
     ["點數單價",        "0.01",                      "每點換算服務費（元）"],
     ["機構名稱",        "綜合施工處",                "機構名稱"],
     ["機構代碼",        "CPC",                       "機構代碼"],
-    ["系統版本",        "1.1.0",                     "系統版本號"],
+    ["系統版本",        "1.2.0",                     "系統版本號"],
     ["初始化時間",      new Date().toISOString(),    "系統初始化時間"],
     ["一般工地協助員_月薪基準", "220",               "一般工地協助員每小時費率（元）"],
     ["離島工地協助員_月薪基準", "290",               "離島工地協助員每小時費率（元）"],
@@ -364,7 +373,7 @@ function doGet(e) {
 
     switch (action) {
       case "ping":
-        data = { status: "ok", message: "GAS API 運作正常", timestamp: new Date().toISOString() };
+        data = { status: "ok", message: "GAS API 運作正常", version: "1.2.0", timestamp: new Date().toISOString() };
         break;
       case "getWorkers":
         data = getWorkers();
@@ -651,7 +660,8 @@ function upsertWorker(data) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][headers.indexOf("工號")] === data.id) {
       const updateMap = {
-        "姓名": data.name, "Email": data.email || "", "部門": data.department || "",
+        "姓名": data.name, "帳號類型": data.accountType || "協助員",
+        "Email": data.email || "", "部門": data.department || "",
         "服務區域": data.area, "協助員類型": data.workerType,
         "到職日期": data.onboardDate, "狀態": data.status || "在職",
         "小計經驗天數": data.pastExpDays || 0, "備註": data.note || "",
@@ -668,7 +678,8 @@ function upsertWorker(data) {
 
   if (!found) {
     sheet.appendRow([
-      data.id, data.name, data.email || "", data.department || "",
+      data.id, data.name, data.accountType || "協助員",
+      data.email || "", data.department || "",
       data.area, data.workerType, data.onboardDate, "",
       data.status || "在職", data.pastExpDays || 0, data.note || "",
       now, now
