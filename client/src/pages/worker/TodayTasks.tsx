@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { ChevronLeft, ChevronRight, Camera, Image as ImageIcon, Paperclip, CheckCircle2, Circle, AlertTriangle, Eye, Trash2, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,28 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { format, addDays, subDays, isToday } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
+import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS, type WorkerType } from "../../../../shared/domain";
 
-const WORKER_TYPE = "一般工地協助員";
-const A1_ITEMS = POINTS_CONFIG_SEED.filter(item => item.workerType === WORKER_TYPE && item.category === "A1");
+// 依協助員類型取得當日應填報的工作項目（A1 類別為每日填報項目）
+function getDailyItems(workerType: string) {
+  return POINTS_CONFIG_SEED.filter(
+    item => item.workerType === workerType && item.category === "A1"
+  );
+}
+
+// 依協助員類型取得月度填報項目（B1/B2/C/D1/D2/S/P 類別）
+function getMonthlyItems(workerType: string) {
+  return POINTS_CONFIG_SEED.filter(
+    item => item.workerType === workerType && item.category !== "A1" && item.category !== "A2"
+  );
+}
+
+// 依協助員類型取得特殊事件項目（A2 類別）
+function getEventItems(workerType: string) {
+  return POINTS_CONFIG_SEED.filter(
+    item => item.workerType === workerType && item.category === "A2"
+  );
+}
 
 interface TaskFile { id: string; name: string; url: string; type: string; }
 interface TaskItem {
@@ -40,15 +58,29 @@ const STATUS_CONFIG = {
 
 export default function TodayTasks() {
   const [currentDate, setCurrentDate] = useState(new Date());
+  // 協助員類型選擇（實際應從登入使用者 profile 取得）
+  const [selectedWorkerType, setSelectedWorkerType] = useState<string>("一般工地協助員");
+  const dailyItems = useMemo(() => getDailyItems(selectedWorkerType), [selectedWorkerType]);
+
   const [tasks, setTasks] = useState<TaskItem[]>(() =>
-    A1_ITEMS.map(item => ({
+    getDailyItems("一般工地協助員").map((item) => ({
       itemId: item.itemId, name: item.name, points: item.pointsPerUnit,
       completed: false, note: "", files: [], status: "draft" as const,
     }))
   );
   const [expandedItems, setExpandedItems] = useState<Set<string>>(
-    () => new Set(A1_ITEMS.map(i => i.itemId))
+    () => new Set(dailyItems.map(i => i.itemId))
   );
+
+  // 當協助員類型改變時，重置任務清單
+  useEffect(() => {
+    const items = getDailyItems(selectedWorkerType);
+    setTasks(items.map(item => ({
+      itemId: item.itemId, name: item.name, points: item.pointsPerUnit,
+      completed: false, note: "", files: [], status: "draft" as const,
+    })));
+    setExpandedItems(new Set(items.map(i => i.itemId)));
+  }, [selectedWorkerType]);
   const [showNoteFor, setShowNoteFor] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -135,7 +167,15 @@ export default function TodayTasks() {
             {STATUS_CONFIG[dayStatus].label}
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">全天出勤</Badge>
+            <select
+              value={selectedWorkerType}
+              onChange={e => setSelectedWorkerType(e.target.value)}
+              className="text-xs border border-border rounded-lg px-2 py-1 bg-white text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {Object.values(WORKER_TYPE_LABELS).map(label => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
             <span className="text-xs text-muted-foreground">{completedCount}/{tasks.length} 項</span>
           </div>
         </div>

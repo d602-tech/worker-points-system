@@ -77,9 +77,9 @@
 - [x] GitHub Actions 工作流程（deploy.yml）
 
 ## 問題修正（2026-04-10）
-- [ ] Bug Fix: GAS API setHeader is not a function 錯誤修正
-- [ ] Bug Fix: initAll 建立資料夾時缺少「佐證檔案」子資料夾邏輯
-- [ ] Config Fix: 系統設定表補齊 GAS_WEB_APP_URL 欄位
-- [ ] Data Setup: 四種角色共 49 筆點數定義資料寫入 Init.gs
-- [ ] Frontend: TodayTasks 對應四種角色點數定義結構
-- [ ] GitHub: 推送最新修正至 d602-tech/worker-points-system
+- [x] Bug Fix: GAS API setHeader is not a function 錯誤修正
+- [x] Bug Fix: initAll 建立資料夾時缺少「佐證檔案」子資料夾邏輯
+- [x] Config Fix: 系統設定表補齊 GAS_WEB_APP_URL 欄位
+- [x] Data Setup: 四種角色共 49 筆點數定義資料寫入 Init.gs
+- [x] Frontend: TodayTasks 對應四種角色點數定義結構
+- [x] GitHub: 推送最新修正至 d602-tech/worker-points-system
