@@ -299,3 +299,66 @@ export async function getSystemConfig(): Promise<GasResponse<SystemConfig[]>> {
 export async function setSystemConfig(key: string, value: string): Promise<GasResponse<void>> {
   return gasPost<void>("setSystemConfig", { key, value });
 }
+
+// ============================================================
+// 檔案索引 API
+// ============================================================
+
+export interface FileIndexRow {
+  fileId: string;       // 檔案編號
+  userId: string;       // 人員編號
+  date: string;         // 日期
+  itemId: string;       // 項目編號
+  fileName: string;     // 檔案名稱
+  mimeType: string;     // 檔案類型
+  driveFileId: string;  // 雲端檔案編號
+  uploadedAt: string;   // 上傳時間
+}
+
+/**
+ * 上傳檔案至 Google Drive（base64 編碼）
+ * category 建議值：A1_每日 / B1_月報 / B2_月報 / 請假佐證 / 年資佐證
+ */
+export async function uploadFileToDrive(
+  callerEmail: string,
+  base64Data: string,
+  fileName: string,
+  mimeType: string,
+  workerId: string,
+  date: string,
+  category = "A1_每日"
+): Promise<GasResponse<{ driveFileId: string; fileName: string }>> {
+  return gasPost<{ driveFileId: string; fileName: string }>("uploadFileToDrive", {
+    callerEmail, base64Data, fileName, mimeType, workerId, date, category,
+  });
+}
+
+/**
+ * 將已上傳的 Drive 檔案寫入「檔案索引」分頁
+ */
+export async function saveFileIndex(
+  callerEmail: string,
+  record: {
+    userId: string;
+    date: string;
+    itemId: string;
+    fileName: string;
+    mimeType: string;
+    driveFileId: string;
+  }
+): Promise<GasResponse<{ fileId: string }>> {
+  return gasPost<{ fileId: string }>("saveFileIndex", { callerEmail, record });
+}
+
+/**
+ * 查詢檔案索引（依人員 + 日期，可選填項目編號）
+ */
+export async function getFileIndexByDate(
+  workerId: string,
+  date: string,
+  itemId?: string
+): Promise<GasResponse<FileIndexRow[]>> {
+  const params: Record<string, string> = { workerId, date };
+  if (itemId) params.itemId = itemId;
+  return gasGet<FileIndexRow[]>("getFileIndex", params);
+}

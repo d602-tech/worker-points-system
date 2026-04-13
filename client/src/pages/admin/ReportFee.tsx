@@ -6,8 +6,8 @@ import { exportServiceFeeReport, toChineseAmount } from "@/lib/exportExcel";
 
 const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
 
-// Point unit price: 1 point = 0.01 NTD (example)
-const POINT_RATE = 0.01;
+// Point unit price: 1 point = 1 NTD
+const POINT_RATE = 1;
 
 const MOCK_DATA = [
   { id: "W001", name: "王小明", type: "一般工地協助員", area: "大潭",
@@ -57,10 +57,10 @@ export default function ReportFee() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
         {[
-          { label: "本月總點數", value: grandPts.toLocaleString(), unit: "pt", color: "text-blue-700 bg-blue-50" },
+          { label: "本月總計", value: grandPts.toLocaleString(), unit: "元", color: "text-blue-700 bg-blue-50" },
           { label: "本月服務費", value: grandFee.toLocaleString(), unit: "元", color: "text-emerald-700 bg-emerald-50" },
           { label: "協助員人數", value: MOCK_DATA.length.toString(), unit: "人", color: "text-purple-700 bg-purple-50" },
-          { label: "平均點數", value: Math.round(grandPts / MOCK_DATA.length).toLocaleString(), unit: "pt", color: "text-amber-700 bg-amber-50" },
+          { label: "人均金額", value: Math.round(grandPts / MOCK_DATA.length).toLocaleString(), unit: "元", color: "text-amber-700 bg-amber-50" },
         ].map(({ label, value, unit, color }) => (
           <div key={label} className={cn("rounded-2xl p-4", color)}>
             <div className="text-2xl font-bold">{value} <span className="text-sm font-normal">{unit}</span></div>

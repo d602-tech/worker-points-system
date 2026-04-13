@@ -1,5 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Plus, Minus, TrendingUp, Send, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, Plus, Minus, TrendingUp, Send,
+  AlertCircle, Camera, Upload, X, Loader2, FileText,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -9,18 +12,54 @@ import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet } from "@/lib/gasApi";
 
+// ============================================================
+// 工具函式
+// ============================================================
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function getMonthlyItems(workerType: string) {
   return POINTS_CONFIG_SEED.filter(
-    item => item.workerType === workerType && (item.category === "B1" || item.category === "B2" || item.category === "C")
+    item =>
+      item.workerType === workerType &&
+      (item.category === "B1" || item.category === "B2" || item.category === "C"),
   );
 }
 
-interface MonthlyItem {
-  itemId: string; name: string; category: string;
-  pointsPerUnit: number; unit: string; quantity: number;
-  perfLevel: "" | "優" | "佳" | "平";
-  status?: string;
+// ============================================================
+// 型別
+// ============================================================
+
+interface TaskFile {
+  id: string;
+  name: string;
+  type: string;
+  blob?: File;
+  driveFileId?: string;
 }
+
+interface MonthlyItem {
+  itemId: string;
+  name: string;
+  category: string;
+  pointsPerUnit: number;
+  unit: string;
+  quantity: number;
+  perfLevel: "" | "優" | "佳" | "平";
+  status: "draft" | "submitted" | "approved" | "rejected" | "";
+  files: TaskFile[];
+}
+
+// ============================================================
+// 常數
+// ============================================================
 
 const PERF_LEVELS = [
   { value: "優" as const, label: "優", points: 5000, color: "bg-emerald-100 text-emerald-700 border-emerald-300" },
@@ -28,25 +67,44 @@ const PERF_LEVELS = [
   { value: "平" as const, label: "平", points: 2000, color: "bg-slate-100 text-slate-700 border-slate-300" },
 ];
 
+const STATUS_BADGE: Record<string, string> = {
+  submitted: "bg-blue-100 text-blue-700",
+  approved: "bg-emerald-100 text-emerald-700",
+  rejected: "bg-red-100 text-red-700",
+  draft: "bg-amber-100 text-amber-700",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  submitted: "已送出", approved: "已通過", rejected: "已退回", draft: "草稿",
+};
+
+// ============================================================
+// 主元件
+// ============================================================
+
 export default function MonthlyReport() {
   const { user } = useGasAuthContext();
   const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
   const monthlyItemDefs = useMemo(() => getMonthlyItems(workerType), [workerType]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  
   const [items, setItems] = useState<MonthlyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // 滑動切換月份邏輯
+  // File input refs per item
+  const cameraRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // 滑動切換月份
   const touchStartX = useRef<number | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current === null) return;
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(deltaX) > 70) {
-      if (deltaX > 0) setCurrentMonth(m => subMonths(m, 1)); // 右滑：上個月
-      else setCurrentMonth(m => addMonths(m, 1)); // 左滑：下個月
+      if (deltaX > 0) setCurrentMonth(m => subMonths(m, 1));
+      else setCurrentMonth(m => addMonths(m, 1));
     }
     touchStartX.current = null;
   };
@@ -56,28 +114,40 @@ export default function MonthlyReport() {
     if (!user?.id) return;
     setIsLoading(true);
     const monthStr = format(currentMonth, "yyyy-MM");
-    
-    const initialItems = monthlyItemDefs.map(def => ({
-      itemId: def.itemId, name: def.name, category: def.category,
-      pointsPerUnit: def.pointsPerUnit, unit: def.unit, quantity: 0, perfLevel: "" as const,
+
+    const initialItems: MonthlyItem[] = monthlyItemDefs.map(def => ({
+      itemId: def.itemId,
+      name: def.name,
+      category: def.category,
+      pointsPerUnit: def.pointsPerUnit,
+      unit: def.unit,
+      quantity: 0,
+      perfLevel: "",
+      status: "",
+      files: [],
     }));
 
     gasGet("getDailyPoints", { workerId: user.id, date: monthStr })
       .then(res => {
         if (res.success && Array.isArray(res.data)) {
-          const dbItems = res.data as Record<string, any>[];
+          const dbItems = res.data as Record<string, unknown>[];
           setItems(initialItems.map(item => {
-            const found = dbItems.find(r => r["項目編號"] === item.itemId || r["點數代碼"] === item.itemId);
+            const found = dbItems.find(
+              r => r["項目編號"] === item.itemId || r["點數代碼"] === item.itemId,
+            );
             if (found) {
               const qty = Number(found["數量"] || 1);
               const note = String(found["備註"] || "");
-              let perf: any = "";
+              const st = String(found["狀態"] || "submitted") as MonthlyItem["status"];
+              let perf: MonthlyItem["perfLevel"] = "";
               if (item.category === "C") {
                 if (note.includes("優")) perf = "優";
                 else if (note.includes("佳")) perf = "佳";
                 else if (note.includes("平")) perf = "平";
               }
-              return { ...item, quantity: qty, perfLevel: perf, status: "submitted" };
+              // 退回 → 解鎖；其他已送出 → 鎖定
+              const effectiveStatus = st === "rejected" ? "" : st;
+              return { ...item, quantity: qty, perfLevel: perf, status: effectiveStatus, files: [] };
             }
             return item;
           }));
@@ -88,59 +158,214 @@ export default function MonthlyReport() {
       .finally(() => setIsLoading(false));
   }, [user?.id, currentMonth, monthlyItemDefs]);
 
+  // ──────────────────────────────
+  // 計算
+  // ──────────────────────────────
   const totalPoints = items.reduce((sum, item) => {
     if (item.category === "C" && item.perfLevel) {
-      const lvl = PERF_LEVELS.find(l => l.value === item.perfLevel);
-      return sum + (lvl?.points || 0);
+      return sum + (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0);
     }
-    return sum + (item.pointsPerUnit || 0) * (item.quantity || 0);
+    return sum + item.pointsPerUnit * item.quantity;
   }, 0);
 
+  const isLocked = (item: MonthlyItem) =>
+    item.status === "submitted" || item.status === "approved";
+
+  // B1/B2 需上傳佐證驗證
+  const b1b2WithoutFile = items.filter(
+    i => (i.category === "B1" || i.category === "B2") &&
+      i.quantity > 0 &&
+      !isLocked(i) &&
+      i.files.length === 0,
+  );
+  const canSubmit =
+    !isSubmitting &&
+    totalPoints > 0 &&
+    b1b2WithoutFile.length === 0 &&
+    items.some(i => !isLocked(i) && (i.quantity > 0 || i.perfLevel));
+
+  // ──────────────────────────────
+  // 操作
+  // ──────────────────────────────
   const setQuantity = (itemId: string, qty: number) => {
-    setItems(prev => prev.map(i => (i.itemId === itemId && !i.status) ? { ...i, quantity: Math.max(0, qty) } : i));
+    setItems(prev =>
+      prev.map(i =>
+        i.itemId === itemId && !isLocked(i) ? { ...i, quantity: Math.max(0, qty) } : i,
+      ),
+    );
   };
 
-  const setPerfLevel = (itemId: string, level: "" | "優" | "佳" | "平") => {
-    setItems(prev => prev.map(i => (i.itemId === itemId && !i.status) ? { ...i, perfLevel: level, quantity: level ? 1 : 0 } : i));
+  const setPerfLevel = (itemId: string, level: MonthlyItem["perfLevel"]) => {
+    setItems(prev =>
+      prev.map(i =>
+        i.itemId === itemId && !isLocked(i)
+          ? { ...i, perfLevel: level, quantity: level ? 1 : 0 }
+          : i,
+      ),
+    );
   };
 
+  const addFile = (itemId: string, file: File) => {
+    const newFile: TaskFile = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: file.name,
+      type: file.type,
+      blob: file,
+    };
+    setItems(prev =>
+      prev.map(i =>
+        i.itemId === itemId ? { ...i, files: [...i.files, newFile] } : i,
+      ),
+    );
+  };
+
+  const removeFile = (itemId: string, fileId: string) => {
+    setItems(prev =>
+      prev.map(i =>
+        i.itemId === itemId
+          ? { ...i, files: i.files.filter(f => f.id !== fileId) }
+          : i,
+      ),
+    );
+  };
+
+  // ──────────────────────────────
+  // 送出
+  // ──────────────────────────────
   const handleSubmit = async () => {
+    if (!user) return;
     setIsSubmitting(true);
+
     try {
       const yearMonth = format(currentMonth, "yyyy-MM");
-      const toSubmit = items.filter(i => !i.status && (i.quantity > 0 || i.perfLevel));
-      
+      const toSubmit = items.filter(
+        i => !isLocked(i) && (i.quantity > 0 || i.perfLevel),
+      );
+
+      // 計算總上傳檔案數
+      const allFiles = toSubmit.flatMap(i =>
+        i.files.filter(f => f.blob && !f.driveFileId),
+      );
+      const totalFiles = allFiles.length;
+
+      // 1. 上傳所有佐證檔案
+      if (totalFiles > 0) {
+        setUploadProgress({ current: 0, total: totalFiles });
+        let uploaded = 0;
+
+        for (const item of toSubmit) {
+          for (const file of item.files.filter(f => f.blob && !f.driveFileId)) {
+            const base64Data = await blobToBase64(file.blob!);
+            const category = item.category === "B1" ? "B1_月報" : "B2_月報";
+            const uploadRes = await gasPost<{ driveFileId: string; fileName: string }>(
+              "uploadFileToDrive",
+              {
+                callerEmail: user.email,
+                base64Data,
+                fileName: file.name,
+                mimeType: file.type,
+                workerId: user.id,
+                date: yearMonth,
+                category,
+              },
+            );
+            if (uploadRes.success && uploadRes.data) {
+              const { driveFileId } = uploadRes.data;
+              await gasPost("saveFileIndex", {
+                callerEmail: user.email,
+                record: {
+                  userId: user.id,
+                  date: yearMonth,
+                  itemId: item.itemId,
+                  fileName: file.name,
+                  mimeType: file.type,
+                  driveFileId,
+                },
+              });
+              // 標記已上傳
+              setItems(prev =>
+                prev.map(i =>
+                  i.itemId === item.itemId
+                    ? {
+                        ...i,
+                        files: i.files.map(f =>
+                          f.id === file.id ? { ...f, driveFileId, blob: undefined } : f,
+                        ),
+                      }
+                    : i,
+                ),
+              );
+            }
+            uploaded++;
+            setUploadProgress({ current: uploaded, total: totalFiles });
+          }
+        }
+      }
+
+      // 2. 送出點數紀錄
       for (const item of toSubmit) {
         await gasPost("saveDailyPoints", {
-          workerId: user?.id || "",
-          workerName: user?.name || "",
+          workerId: user.id,
+          workerName: user.name,
           date: yearMonth,
           pointCode: item.itemId,
           category: item.category,
           taskName: item.name,
-          points: item.category === "C" ? (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0) : item.pointsPerUnit * item.quantity,
-          fileCount: 0,
+          points:
+            item.category === "C"
+              ? PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0
+              : item.pointsPerUnit * item.quantity,
+          fileCount: item.files.length,
           note: item.perfLevel ? `績效等級：${item.perfLevel}` : "",
         });
       }
+
       toast.success("月報資料已送出！");
-      setItems(prev => prev.map(i => (i.quantity > 0 || i.perfLevel) ? { ...i, status: "submitted" } : i));
-    } catch { toast.error("送出失敗，請稍後重試"); }
-    finally { setIsSubmitting(false); }
+      setItems(prev =>
+        prev.map(i =>
+          !isLocked(i) && (i.quantity > 0 || i.perfLevel)
+            ? { ...i, status: "submitted" }
+            : i,
+        ),
+      );
+    } catch (err) {
+      toast.error(`送出失敗：${String(err)}`);
+    } finally {
+      setIsSubmitting(false);
+      setUploadProgress(null);
+    }
   };
 
+  // ──────────────────────────────
+  // Render
+  // ──────────────────────────────
   return (
-    <div className="flex flex-col min-h-full bg-background select-none" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div
+      className="flex flex-col min-h-full bg-background select-none"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Header */}
       <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-border shadow-elegant">
         <div className="flex items-center justify-between px-4 py-4">
-          <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all">
+          <button
+            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all"
+          >
             <ChevronLeft className="w-6 h-6 text-muted-foreground" />
           </button>
           <div className="text-center">
-            <div className="text-lg font-bold text-foreground">{format(currentMonth, "yyyy年M月", { locale: zhTW })}</div>
-            <div className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-tighter">MONTHLY REPORT</div>
+            <div className="text-lg font-bold text-foreground">
+              {format(currentMonth, "yyyy年M月", { locale: zhTW })}
+            </div>
+            <div className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-tighter">
+              MONTHLY REPORT
+            </div>
           </div>
-          <button onClick={() => setCurrentMonth(m => addMonths(m, 1))} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all">
+          <button
+            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all"
+          >
             <ChevronRight className="w-6 h-6 text-muted-foreground" />
           </button>
         </div>
@@ -148,8 +373,13 @@ export default function MonthlyReport() {
           <div className="bg-slate-900 rounded-[28px] px-6 py-5 flex items-center justify-between shadow-elegant-lg relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16 blur-2xl" />
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">本月預計累計</span>
-              <span className="text-3xl font-black text-white">{totalPoints.toLocaleString()}<span className="text-sm font-bold ml-1 text-slate-400">pt</span></span>
+              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">
+                本月預計累計
+              </span>
+              <span className="text-3xl font-black text-white">
+                {totalPoints.toLocaleString()}
+                <span className="text-sm font-bold ml-1 text-slate-400">元</span>
+              </span>
             </div>
             <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-md">
               <TrendingUp className="w-6 h-6 text-blue-400" />
@@ -158,49 +388,104 @@ export default function MonthlyReport() {
         </div>
       </div>
 
-      <div className="flex-1 px-4 py-4 space-y-4 pb-32">
+      {/* B1/B2 必附佐證提示 */}
+      {b1b2WithoutFile.length > 0 && !isLoading && (
+        <div className="mx-4 mt-4 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <span className="text-xs text-amber-800">
+            B1/B2 項目填報數量後須上傳佐證文件，才能送出月報
+          </span>
+        </div>
+      )}
+
+      {/* Items */}
+      <div className="flex-1 px-4 py-4 space-y-4 pb-36">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
-             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-             <div className="text-sm text-muted-foreground font-medium">讀取月報資料中...</div>
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <div className="text-sm text-muted-foreground font-medium">讀取月報資料中...</div>
           </div>
         ) : items.map(item => {
           const isC = item.category === "C";
-          const isSubmitted = !!item.status;
+          const locked = isLocked(item);
+          const needsFile = (item.category === "B1" || item.category === "B2") &&
+            item.quantity > 0 && !locked;
+          const missingFile = needsFile && item.files.length === 0;
+
           return (
-            <div key={item.itemId} className={cn(
-              "bg-white rounded-[32px] shadow-elegant border transition-all duration-300",
-              isSubmitted ? "border-emerald-100 bg-emerald-50/5 opacity-90" : "border-border/60 hover:border-blue-200"
-            )}>
+            <div
+              key={item.itemId}
+              className={cn(
+                "bg-white rounded-[32px] shadow-elegant border transition-all duration-300",
+                locked
+                  ? "border-emerald-100 bg-emerald-50/5 opacity-90"
+                  : missingFile
+                    ? "border-amber-300"
+                    : "border-border/60 hover:border-blue-200",
+              )}
+            >
               <div className="p-5">
+                {/* Item header */}
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className={cn("text-[10px] font-black px-1.5 py-0.5 rounded-md text-white leading-none", 
-                        item.category === "B1" ? "bg-orange-500" : item.category === "B2" ? "bg-purple-500" : "bg-blue-600")}>
+                    <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                      <span className={cn(
+                        "text-[10px] font-black px-1.5 py-0.5 rounded-md text-white leading-none",
+                        item.category === "B1" ? "bg-orange-500"
+                          : item.category === "B2" ? "bg-purple-500"
+                            : "bg-blue-600",
+                      )}>
                         {item.category}
                       </span>
-                      {isSubmitted && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-md">已送出</span>}
+                      {item.status && (
+                        <span className={cn(
+                          "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
+                          STATUS_BADGE[item.status] ?? "bg-slate-100 text-slate-600",
+                        )}>
+                          {STATUS_LABEL[item.status] ?? item.status}
+                        </span>
+                      )}
+                      {missingFile && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                          需附佐證
+                        </span>
+                      )}
                     </div>
-                    <h4 className="text-[15px] font-bold text-foreground leading-snug">{item.name}</h4>
+                    <h4 className="text-[15px] font-bold text-foreground leading-snug">
+                      {item.name}
+                    </h4>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-xs font-bold text-slate-400">{item.pointsPerUnit.toLocaleString()} pt</div>
-                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">PER {item.unit}</div>
+                    <div className="text-xs font-bold text-slate-400">
+                      {item.pointsPerUnit.toLocaleString()} 元
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
+                      PER {item.unit}
+                    </div>
                   </div>
                 </div>
-                
+
+                {/* Input area */}
                 {isC ? (
                   <div className="space-y-3">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">本月績效評估</div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                      本月績效評估
+                    </div>
                     <div className="flex gap-2.5">
                       {PERF_LEVELS.map(({ value, label, points, color }) => (
-                        <button key={value} disabled={isSubmitted}
+                        <button
+                          key={value}
+                          disabled={locked}
                           onClick={() => setPerfLevel(item.itemId, item.perfLevel === value ? "" : value)}
-                          className={cn("flex-1 py-3.5 rounded-[20px] border-2 transition-all flex flex-col items-center justify-center gap-0.5 active:scale-95",
-                            item.perfLevel === value ? color : "border-slate-50 bg-slate-50 text-slate-400 opacity-60")}>
+                          className={cn(
+                            "flex-1 py-3.5 rounded-[20px] border-2 transition-all flex flex-col items-center justify-center gap-0.5 active:scale-95",
+                            item.perfLevel === value
+                              ? color
+                              : "border-slate-50 bg-slate-50 text-slate-400 opacity-60",
+                          )}
+                        >
                           <span className="text-base font-black">{label}</span>
-                          <span className="text-[10px] font-bold opacity-80">{points.toLocaleString()}pt</span>
+                          <span className="text-[10px] font-bold opacity-80">{points.toLocaleString()}元</span>
                         </button>
                       ))}
                     </div>
@@ -208,29 +493,135 @@ export default function MonthlyReport() {
                 ) : (
                   <div className="flex items-center justify-between bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">填報數量</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
+                        填報數量
+                      </span>
                       <span className="text-xs font-bold text-slate-600">{item.unit}</span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <button disabled={isSubmitted} onClick={() => setQuantity(item.itemId, item.quantity - 1)} 
-                        className="w-12 h-12 rounded-2xl bg-white shadow-sm border border-border flex items-center justify-center hover:bg-slate-50 active:scale-90 transition-all disabled:opacity-30">
+                      <button
+                        disabled={locked}
+                        onClick={() => setQuantity(item.itemId, item.quantity - 1)}
+                        className="w-12 h-12 rounded-2xl bg-white shadow-sm border border-border flex items-center justify-center hover:bg-slate-50 active:scale-90 transition-all disabled:opacity-30"
+                      >
                         <Minus className="w-5 h-5 text-slate-600" />
                       </button>
-                      <span className="w-10 text-center text-xl font-black text-slate-900">{item.quantity}</span>
-                      <button disabled={isSubmitted} onClick={() => setQuantity(item.itemId, item.quantity + 1)} 
-                        className="w-12 h-12 rounded-2xl bg-slate-900 shadow-md flex items-center justify-center hover:bg-black active:scale-90 transition-all disabled:opacity-30">
+                      <span className="w-10 text-center text-xl font-black text-slate-900">
+                        {item.quantity}
+                      </span>
+                      <button
+                        disabled={locked}
+                        onClick={() => setQuantity(item.itemId, item.quantity + 1)}
+                        className="w-12 h-12 rounded-2xl bg-slate-900 shadow-md flex items-center justify-center hover:bg-black active:scale-90 transition-all disabled:opacity-30"
+                      >
                         <Plus className="w-5 h-5 text-white" />
                       </button>
                     </div>
                   </div>
                 )}
-                
+
+                {/* 小計 */}
                 {(item.quantity > 0 || item.perfLevel) && (
                   <div className="mt-4 pt-3 border-t border-dashed border-border/60 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">小計點數</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">小計</span>
                     <span className="text-sm font-black text-blue-700">
-                      +{ (isC ? (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0) : (item.pointsPerUnit * item.quantity)).toLocaleString() } pt
+                      +{(isC
+                        ? PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0
+                        : item.pointsPerUnit * item.quantity
+                      ).toLocaleString()} 元
                     </span>
+                  </div>
+                )}
+
+                {/* B1/B2 佐證上傳區 */}
+                {(item.category === "B1" || item.category === "B2") && !locked && (
+                  <div className="mt-4 pt-4 border-t border-border/40">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        佐證文件
+                        {needsFile && (
+                          <span className="text-red-500 ml-0.5">*</span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => cameraRefs.current[item.itemId]?.click()}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-muted-foreground bg-slate-50 border border-border rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
+                        >
+                          <Camera className="w-3.5 h-3.5" />拍照
+                        </button>
+                        <button
+                          onClick={() => fileRefs.current[item.itemId]?.click()}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-muted-foreground bg-slate-50 border border-border rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
+                        >
+                          <Upload className="w-3.5 h-3.5" />上傳
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 已選擇的檔案 */}
+                    {item.files.length > 0 && (
+                      <div className="space-y-1.5">
+                        {item.files.map(f => (
+                          <div key={f.id}
+                            className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2">
+                            <FileText className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                            <span className="text-xs text-foreground flex-1 truncate">{f.name}</span>
+                            {f.driveFileId ? (
+                              <a
+                                href={`https://drive.google.com/file/d/${f.driveFileId}/view`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="text-[10px] text-emerald-600 font-bold"
+                              >Drive ✓</a>
+                            ) : (
+                              <button
+                                onClick={() => removeFile(item.itemId, f.id)}
+                                className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-red-100 transition-colors"
+                              >
+                                <X className="w-3 h-3 text-muted-foreground" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 隱藏的 input */}
+                    <input
+                      ref={el => { cameraRefs.current[item.itemId] = el; }}
+                      type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) addFile(item.itemId, f);
+                        e.target.value = "";
+                      }}
+                    />
+                    <input
+                      ref={el => { fileRefs.current[item.itemId] = el; }}
+                      type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) addFile(item.itemId, f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* 已上傳的 Drive 佐證（鎖定狀態） */}
+                {locked && item.files.filter(f => f.driveFileId).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5">
+                    {item.files.filter(f => f.driveFileId).map(f => (
+                      <a
+                        key={f.id}
+                        href={`https://drive.google.com/file/d/${f.driveFileId}/view`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-xs text-blue-600 hover:underline"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        {f.name}
+                      </a>
+                    ))}
                   </div>
                 )}
               </div>
@@ -239,27 +630,50 @@ export default function MonthlyReport() {
         })}
       </div>
 
+      {/* Bottom submit bar */}
       <div className="fixed bottom-[60px] left-1/2 -translate-x-1/2 w-full max-w-[430px] px-4 py-4 bg-white/95 backdrop-blur-md border-t border-border z-[45] pb-safe">
-        <Button 
-          disabled={isSubmitting || totalPoints === 0 || items.every(i => i.status === "submitted")} 
+        {b1b2WithoutFile.length > 0 && !isLoading && (
+          <div className="text-xs text-amber-700 text-center mb-2 font-medium">
+            尚有 {b1b2WithoutFile.length} 個 B1/B2 項目未上傳佐證
+          </div>
+        )}
+        <Button
+          disabled={!canSubmit}
           onClick={handleSubmit}
-          className={cn("w-full h-14 rounded-3xl text-base font-black shadow-elegant-lg transition-all transform active:scale-95 gap-3",
-            totalPoints > 0 ? "bg-slate-900 hover:bg-black text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed")}>
-          {isSubmitting ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Send className="w-5 h-5" />送出月報累記 ({totalPoints.toLocaleString()} pt)</>}
+          className={cn(
+            "w-full h-14 rounded-3xl text-base font-black shadow-elegant-lg transition-all transform active:scale-95 gap-3",
+            canSubmit ? "bg-slate-900 hover:bg-black text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed",
+          )}
+        >
+          {isSubmitting ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              {uploadProgress
+                ? `上傳 ${uploadProgress.current}/${uploadProgress.total} 個檔案...`
+                : "送出中..."}
+            </span>
+          ) : (
+            <>
+              <Send className="w-5 h-5" />
+              送出月報累記 ({totalPoints.toLocaleString()} 元)
+            </>
+          )}
         </Button>
       </div>
-      
-      {/* Missing Month/Empty Info */}
+
+      {/* Empty state */}
       {!isLoading && items.length === 0 && (
-         <div className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-4">
-            <div className="w-20 h-20 bg-slate-50 rounded-[40px] flex items-center justify-center text-slate-200">
-               <AlertCircle className="w-10 h-10" />
-            </div>
-            <div className="space-y-1">
-               <h3 className="font-bold text-slate-900">目前尚無可填報項目</h3>
-               <p className="text-xs text-slate-400 leading-relaxed">此月份或您的身份類型目前沒有對應的月度工作項目。</p>
-            </div>
-         </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-4">
+          <div className="w-20 h-20 bg-slate-50 rounded-[40px] flex items-center justify-center text-slate-200">
+            <AlertCircle className="w-10 h-10" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-bold text-slate-900">目前尚無可填報項目</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              此月份或您的身份類型目前沒有對應的月度工作項目。
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

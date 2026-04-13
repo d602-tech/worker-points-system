@@ -4,7 +4,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { Button } from "@/components/ui/button";
 import {
   Users, CalendarDays, CheckSquare, BarChart2,
-  UserCheck, DollarSign, Settings, LogOut, ChevronRight
+  UserCheck, DollarSign, Settings, LogOut, ChevronRight, History,
 } from "lucide-react";
 
 const TABS = [
@@ -15,6 +15,7 @@ const TABS = [
   { id: "leave",      path: "/reports/leave",      icon: UserCheck,   label: "出勤暨特休"   },
   { id: "fee",        path: "/reports/fee",        icon: DollarSign,  label: "服務費統計"   },
   { id: "config",     path: "/admin/config",       icon: Settings,    label: "系統設定"     },
+  { id: "changelog",  path: "/admin/changelog",    icon: History,     label: "更新歷程"     },
 ];
 
 interface AdminLayoutProps {

@@ -1,23 +1,42 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { ChevronLeft, ChevronRight, Camera, Image as ImageIcon, Paperclip, CheckCircle2, Circle, AlertTriangle, Eye, Trash2, Plus, X, Send, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Camera, Image as ImageIcon, Paperclip, CheckCircle2, Circle, AlertTriangle, Eye, Trash2, Plus, X, Send, Check, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { format, addDays, subDays, isToday, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { POINTS_CONFIG_SEED, type WorkerType } from "../../../../shared/domain";
+import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
-import { gasPost, gasGet } from "@/lib/gasApi";
+import { gasPost, gasGet, getFileIndexByDate, type FileIndexRow } from "@/lib/gasApi";
 
-// 依協助員類型取得當日應填報的工作項目（A1 類別為每日填報項目）
+// ── 工具函式 ────────────────────────────────────────────────
+
 function getDailyItems(workerType: string) {
   return POINTS_CONFIG_SEED.filter(
     item => item.workerType === workerType && item.category === "A1"
   );
 }
 
-interface TaskFile { id: string; name: string; url: string; type: string; blob?: Blob; }
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ── 型別 ──────────────────────────────────────────────────────
+
+interface TaskFile {
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  blob?: Blob;          // 尚未上傳的本地檔案
+  driveFileId?: string; // 已上傳到 Drive 的 ID
+}
+
 interface TaskItem {
   itemId: string; name: string; points: number; completed: boolean;
   note: string; files: TaskFile[];
@@ -25,6 +44,7 @@ interface TaskItem {
   rejectionReason?: string;
   submittedAt?: string;
 }
+
 type DayStatus = "none" | "draft" | "submitted" | "approved" | "rejected";
 
 function getDayStatus(tasks: TaskItem[]): DayStatus {
@@ -44,11 +64,12 @@ const STATUS_CONFIG = {
   rejected:  { label: "已退回", color: "bg-red-50 text-red-700 border-red-200",         dot: "bg-red-500" },
 };
 
+// ── 主元件 ────────────────────────────────────────────────────
+
 export default function TodayTasks() {
-  const { user, isAuthenticated } = useGasAuthContext();
+  const { user } = useGasAuthContext();
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // 從登入使用者 profile 取得協助員類型
   const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
   const dailyItems = useMemo(() => getDailyItems(workerType), [workerType]);
 
@@ -61,31 +82,30 @@ export default function TodayTasks() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(
     () => new Set(dailyItems.map(i => i.itemId))
   );
-
   const [isLoading, setIsLoading] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [lastSubmittedCount, setLastSubmittedCount] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // 滑動切換日期邏輯
+  // 滑動切換日期
   const touchStartX = useRef<number | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current === null) return;
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(deltaX) > 70) {
-      if (deltaX > 0) setCurrentDate(d => subDays(d, 1)); // 向右滑：前一天
-      else setCurrentDate(d => addDays(d, 1)); // 向左滑：後一天
+      if (deltaX > 0) setCurrentDate(d => subDays(d, 1));
+      else setCurrentDate(d => addDays(d, 1));
     }
     touchStartX.current = null;
   };
 
-  // 載入資料 (點數紀錄 + 檔案索引)
+  // 載入資料（點數紀錄 + 已上傳檔案）
   useEffect(() => {
     if (!user?.id) return;
     setIsLoading(true);
     const dateStr = format(currentDate, "yyyy-MM-dd");
-    
-    // 初始化空任務
+
     const initialTasks: TaskItem[] = dailyItems.map(item => ({
       itemId: item.itemId, name: item.name, points: item.pointsPerUnit,
       completed: false, note: "", files: [], status: "draft" as const,
@@ -93,13 +113,13 @@ export default function TodayTasks() {
 
     Promise.all([
       gasGet("getDailyPoints", { workerId: user.id, date: dateStr }),
-      gasGet("getFileIndex", { workerId: user.id, date: dateStr })
+      getFileIndexByDate(user.id, dateStr),
     ]).then(([pointsRes, filesRes]) => {
       let updatedTasks = [...initialTasks];
-      
+
       if (pointsRes.success && Array.isArray(pointsRes.data)) {
         updatedTasks = updatedTasks.map(task => {
-          const existing = (pointsRes.data as Record<string, any>[]).find(
+          const existing = (pointsRes.data as Record<string, unknown>[]).find(
             r => r["項目編號"] === task.itemId || r["點數代碼"] === task.itemId
           );
           if (existing) {
@@ -110,27 +130,29 @@ export default function TodayTasks() {
             return {
               ...task,
               completed: true,
-              status: statusMap[existing["狀態"] || existing["審核狀態"]] || "draft",
-              note: existing["備註"] || "",
-              rejectionReason: existing["退回原因"] || "",
-              submittedAt: existing["上傳時間"] || existing["最後更新時間"]
+              status: statusMap[String(existing["狀態"] || existing["審核狀態"] || "")] || "draft",
+              note: String(existing["備註"] || ""),
+              rejectionReason: String(existing["退回原因"] || ""),
+              submittedAt: String(existing["上傳時間"] || existing["最後更新時間"] || ""),
             };
           }
           return task;
         });
       }
 
+      // 載入已上傳的 Drive 檔案（重新整理後仍可見）
       if (filesRes.success && Array.isArray(filesRes.data)) {
         updatedTasks = updatedTasks.map(task => {
-          const files = (filesRes.data as Record<string, any>[])
-            .filter(f => f["項目編號"] === task.itemId)
+          const driveFiles = (filesRes.data as FileIndexRow[])
+            .filter(f => f.itemId === task.itemId)
             .map(f => ({
-              id: f["檔案編號"],
-              name: f["檔案名稱"],
-              type: f["檔案類型"],
-              url: `https://drive.google.com/file/d/${f["雲端檔案編號"]}/view`,
+              id: f.fileId,
+              name: f.fileName,
+              type: f.mimeType,
+              url: `https://drive.google.com/file/d/${f.driveFileId}/view`,
+              driveFileId: f.driveFileId,
             }));
-          return { ...task, files: [...task.files, ...files] };
+          return driveFiles.length > 0 ? { ...task, files: driveFiles } : task;
         });
       }
 
@@ -148,7 +170,7 @@ export default function TodayTasks() {
 
   const toggleTask = (itemId: string) => {
     const task = tasks.find(t => t.itemId === itemId);
-    if (task?.status !== "draft" && task?.status !== "rejected") return; 
+    if (task?.status !== "draft" && task?.status !== "rejected") return;
     setTasks(prev => prev.map(t => t.itemId === itemId ? { ...t, completed: !t.completed } : t));
   };
 
@@ -164,38 +186,114 @@ export default function TodayTasks() {
   };
 
   const removeFile = (itemId: string, fileId: string) => {
-    setTasks(prev => prev.map(t => t.itemId === itemId ? { ...t, files: t.files.filter(f => f.id !== fileId) } : t));
+    setTasks(prev => prev.map(t =>
+      t.itemId === itemId ? { ...t, files: t.files.filter(f => f.id !== fileId) } : t
+    ));
   };
 
+  // ── 送出：先上傳檔案到 Drive，再送點數 ──────────────────
   const handleSubmit = async () => {
     setShowConfirmDialog(false);
     setIsSubmitting(true);
     try {
       const dateStr = format(currentDate, "yyyy-MM-dd");
-      const completedTasks = tasks.filter(t => t.completed && t.status !== "submitted" && t.status !== "approved");
-      
+      const completedTasks = tasks.filter(
+        t => t.completed && t.status !== "submitted" && t.status !== "approved"
+      );
       setLastSubmittedCount(completedTasks.length);
 
-      for (const task of completedTasks) {
-        await gasPost("saveDailyPoints", {
-          workerId: user?.id || "",
-          workerName: user?.name || "",
-          date: dateStr,
+      // 計算需要上傳的 blob 檔案總數
+      const pendingFiles = completedTasks.flatMap(t =>
+        t.files.filter(f => f.blob && !f.driveFileId)
+      );
+      const totalFiles = pendingFiles.length;
+
+      if (totalFiles > 0) {
+        setUploadProgress({ current: 0, total: totalFiles });
+        let uploaded = 0;
+
+        for (const task of completedTasks) {
+          for (const file of task.files.filter(f => f.blob && !f.driveFileId)) {
+            try {
+              const base64Data = await blobToBase64(file.blob!);
+
+              // 步驟 1：上傳至 Google Drive
+              const uploadRes = await gasPost("uploadFileToDrive", {
+                callerEmail: user?.email || "",
+                base64Data,
+                fileName: file.name,
+                mimeType: file.type,
+                workerId: user?.id || "",
+                date: dateStr,
+                category: "A1_每日",
+              });
+
+              if (uploadRes.success && uploadRes.data) {
+                const { driveFileId } = uploadRes.data as { driveFileId: string; fileName: string };
+
+                // 步驟 2：寫入檔案索引
+                await gasPost("saveFileIndex", {
+                  callerEmail: user?.email || "",
+                  record: {
+                    userId: user?.id || "",
+                    date: dateStr,
+                    itemId: task.itemId,
+                    fileName: file.name,
+                    mimeType: file.type,
+                    driveFileId,
+                  },
+                });
+
+                // 更新本地 file 記錄（標記已上傳）
+                setTasks(prev => prev.map(t =>
+                  t.itemId === task.itemId
+                    ? {
+                        ...t,
+                        files: t.files.map(f =>
+                          f.id === file.id
+                            ? { ...f, driveFileId, url: `https://drive.google.com/file/d/${driveFileId}/view`, blob: undefined }
+                            : f
+                        ),
+                      }
+                    : t
+                ));
+              } else {
+                toast.error(`檔案 ${file.name} 上傳失敗：${uploadRes.error || "未知錯誤"}`);
+              }
+            } catch (err) {
+              toast.error(`檔案 ${file.name} 上傳失敗`);
+            }
+
+            uploaded++;
+            setUploadProgress({ current: uploaded, total: totalFiles });
+          }
+        }
+      }
+
+      // 步驟 3：送出點數紀錄
+      await gasPost("saveDailyPointsBatch", {
+        workerId: user?.id || "",
+        workerName: user?.name || "",
+        date: dateStr,
+        items: completedTasks.map(task => ({
           pointCode: task.itemId,
           category: "A1",
           taskName: task.name,
           points: task.points,
           fileCount: task.files.length,
           note: task.note,
-        });
-      }
+        })),
+      });
 
-      setTasks(prev => prev.map(t => t.completed ? { ...t, status: "submitted" } : t));
+      setTasks(prev => prev.map(t =>
+        t.completed && t.status !== "approved" ? { ...t, status: "submitted" } : t
+      ));
       setShowSummaryModal(true);
     } catch {
       toast.error("送出失敗，請檢查網路連線");
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(null);
     }
   };
 
@@ -237,7 +335,8 @@ export default function TodayTasks() {
         </div>
         <div className="px-4 pb-3">
           <div className="h-2 bg-muted rounded-full overflow-hidden shadow-inner">
-            <div className="h-full bg-gradient-to-r from-blue-500 to-blue-700 rounded-full transition-all duration-700 ease-out" style={{ width: `${tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0}%` }} />
+            <div className="h-full bg-gradient-to-r from-blue-500 to-blue-700 rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0}%` }} />
           </div>
         </div>
       </div>
@@ -267,8 +366,10 @@ export default function TodayTasks() {
                 });
               }}>
                 <div className="mt-1" onClick={e => { e.stopPropagation(); toggleTask(task.itemId); }}>
-                  {isSubmitted ? <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg transform scale-110"><Check className="w-4 h-4 text-white" /></div> :
-                   task.completed ? <CheckCircle2 className="w-6 h-6 text-blue-600" /> : <Circle className="w-6 h-6 text-muted-foreground/30" />}
+                  {isSubmitted
+                    ? <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg transform scale-110"><Check className="w-4 h-4 text-white" /></div>
+                    : task.completed ? <CheckCircle2 className="w-6 h-6 text-blue-600" /> : <Circle className="w-6 h-6 text-muted-foreground/30" />
+                  }
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start gap-2">
@@ -280,22 +381,28 @@ export default function TodayTasks() {
                       <h4 className={cn("text-[15px] font-bold leading-snug", task.completed ? "text-foreground" : "text-muted-foreground")}>{task.name}</h4>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-black text-blue-800">{task.points.toLocaleString()} pt</div>
+                      <div className="text-sm font-black text-blue-800">{task.points.toLocaleString()} 元</div>
                     </div>
                   </div>
-                  {isRejected && task.rejectionReason && <div className="mt-2 text-xs font-medium text-red-600 bg-red-50 p-2 rounded-xl border border-red-100 italic">{task.rejectionReason}</div>}
-                  {task.files.length > 0 && <div className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider"><Paperclip className="w-3.5 h-3.5" />{task.files.length} FILES</div>}
+                  {isRejected && task.rejectionReason && (
+                    <div className="mt-2 text-xs font-medium text-red-600 bg-red-50 p-2 rounded-xl border border-red-100 italic">{task.rejectionReason}</div>
+                  )}
+                  {task.files.length > 0 && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <Paperclip className="w-3.5 h-3.5" />{task.files.length} FILES
+                    </div>
+                  )}
                 </div>
                 <ChevronRight className={cn("w-5 h-5 text-muted-foreground/40 mt-1 transition-transform", isExpanded && "rotate-90")} />
               </div>
 
               {isExpanded && (
                 <div className="px-4 pb-5 pt-2 space-y-4 animate-fade-in border-t border-dashed border-border/60">
-                  {/* Upload Actions (only if not submitted) */}
+                  {/* 上傳按鈕（僅未送出時顯示）*/}
                   {!isSubmitted ? (
                     <div className="grid grid-cols-3 gap-3">
                       {[
-                        { icon: Camera, label: "拍照", accept: "image/*", capture: "environment" },
+                        { icon: Camera, label: "拍照", accept: "image/*", capture: "environment" as const },
                         { icon: ImageIcon, label: "相簿", accept: "image/*", multiple: true },
                         { icon: Paperclip, label: "文件", accept: ".pdf,.jpg,.jpeg,.png", multiple: true },
                       ].map((act, i) => (
@@ -317,37 +424,57 @@ export default function TodayTasks() {
                   ) : (
                     <div className="bg-emerald-50/50 p-3 rounded-2xl flex items-center gap-2 border border-emerald-100">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span className="text-xs font-bold text-emerald-700">資料已於 {task.submittedAt ? format(parseISO(String(task.submittedAt)), "HH:mm") : "今日"} 完成上傳且不可修改</span>
+                      <span className="text-xs font-bold text-emerald-700">
+                        資料已於 {task.submittedAt ? format(parseISO(String(task.submittedAt)), "HH:mm") : "今日"} 完成上傳且不可修改
+                      </span>
                     </div>
                   )}
 
-                  {/* File List */}
+                  {/* 檔案列表 */}
                   {task.files.length > 0 && (
                     <div className="space-y-2">
-                      <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest px-1">已選取檔案</div>
+                      <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest px-1">
+                        {isSubmitted ? "已上傳檔案" : "已選取檔案"}
+                      </div>
                       {task.files.map(file => (
                         <div key={file.id} className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-border/80 shadow-sm hover:border-blue-200 transition-colors">
                           <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0">
-                            {file.type?.includes("image") ? <img src={file.url} className="w-full h-full object-cover" /> : <Paperclip className="w-5 h-5 text-slate-400" />}
+                            {file.type?.includes("image") && !file.driveFileId
+                              ? <img src={file.url} className="w-full h-full object-cover" />
+                              : <Paperclip className="w-5 h-5 text-slate-400" />}
                           </div>
                           <div className="flex-1 min-w-0 pr-2">
                             <div className="text-xs font-bold truncate">{file.name}</div>
-                            <div className="text-[10px] text-muted-foreground font-mono uppercase">{file.type?.split("/")[1] || "FILE"}</div>
+                            <div className="text-[10px] text-muted-foreground font-mono uppercase flex items-center gap-1">
+                              {file.type?.split("/")[1] || "FILE"}
+                              {file.driveFileId && <span className="text-emerald-600 font-bold">· Drive ✓</span>}
+                            </div>
                           </div>
                           <div className="flex gap-1">
-                             <button className="p-2 rounded-xl hover:bg-slate-100 active:scale-90" onClick={() => window.open(file.url, "_blank")}><Eye className="w-4 h-4 text-slate-400" /></button>
-                             {!isSubmitted && <button className="p-2 rounded-xl hover:bg-red-50 active:scale-90 text-red-500" onClick={() => removeFile(task.itemId, file.id)}><Trash2 className="w-4 h-4" /></button>}
+                            <button className="p-2 rounded-xl hover:bg-slate-100 active:scale-90" onClick={() => window.open(file.url, "_blank")}>
+                              <Eye className="w-4 h-4 text-slate-400" />
+                            </button>
+                            {!isSubmitted && (
+                              <button className="p-2 rounded-xl hover:bg-red-50 active:scale-90 text-red-500" onClick={() => removeFile(task.itemId, file.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Note Section */}
+                  {/* 備註 */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                       <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest px-1">作業備註</div>
-                       {!isSubmitted && !showNoteFor.has(task.itemId) && <button className="text-[10px] font-bold text-blue-600 flex items-center gap-1" onClick={() => setShowNoteFor(prev => new Set(prev).add(task.itemId))}><Plus className="w-3 h-3" />新增</button>}
+                      <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest px-1">作業備註</div>
+                      {!isSubmitted && !showNoteFor.has(task.itemId) && (
+                        <button className="text-[10px] font-bold text-blue-600 flex items-center gap-1"
+                          onClick={() => setShowNoteFor(prev => new Set(prev).add(task.itemId))}>
+                          <Plus className="w-3 h-3" />新增
+                        </button>
+                      )}
                     </div>
                     {isSubmitted ? (
                       <div className="text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-2xl min-h-[48px] border border-slate-100">{task.note || "無備註"}</div>
@@ -356,7 +483,10 @@ export default function TodayTasks() {
                         <textarea placeholder="請輸入當日作業特殊情況說明..." rows={2} value={task.note}
                           onChange={e => setTasks(prev => prev.map(t => t.itemId === task.itemId ? { ...t, note: e.target.value } : t))}
                           className="w-full text-sm font-medium bg-slate-50 border-none rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all resize-none min-h-[64px]" />
-                        {!isSubmitted && <button className="absolute right-3 top-3 p-1 rounded-lg bg-slate-200/50 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setShowNoteFor(prev => {const n=new Set(prev); n.delete(task.itemId); return n;})}><X className="w-3.5 h-3.5" /></button>}
+                        <button className="absolute right-3 top-3 p-1 rounded-lg bg-slate-200/50 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => setShowNoteFor(prev => { const n = new Set(prev); n.delete(task.itemId); return n; })}>
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -367,7 +497,7 @@ export default function TodayTasks() {
         })}
       </div>
 
-      {/* Float Submit Button */}
+      {/* 送出按鈕（含上傳進度）*/}
       {!isLoading && !isFinalized && (
         <div className="fixed bottom-[60px] left-1/2 -translate-x-1/2 w-full max-w-[430px] px-4 py-4 z-[45] pb-safe">
           <Button
@@ -379,7 +509,13 @@ export default function TodayTasks() {
               completedCount ? "bg-slate-900 hover:bg-black text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
             )}>
             {isSubmitting ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                {uploadProgress
+                  ? <span>上傳 {uploadProgress.current}/{uploadProgress.total} 個檔案...</span>
+                  : <span>儲存中...</span>
+                }
+              </div>
             ) : (
               <><Send className="w-5 h-5" />確認送出今日資料 ({completedCount} 項)</>
             )}
@@ -387,7 +523,7 @@ export default function TodayTasks() {
         </div>
       )}
 
-      {/* Confirm Dialog */}
+      {/* 確認 Dialog */}
       {showConfirmDialog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowConfirmDialog(false)}>
           <div className="w-full max-w-sm bg-white rounded-[40px] p-8 shadow-elegant-lg transform transition-all animate-fade-scale" onClick={e => e.stopPropagation()}>
@@ -396,7 +532,14 @@ export default function TodayTasks() {
             </div>
             <h3 className="text-xl font-black text-center mb-2">確定要送出嗎？</h3>
             <p className="text-sm text-center text-slate-500 leading-relaxed mb-8">
-              您即將送出 <span className="text-slate-900 font-bold">{completedCount}</span> 項工作資料。<br/>
+              您即將送出 <span className="text-slate-900 font-bold">{completedCount}</span> 項工作資料。<br />
+              {tasks.some(t => t.completed && t.files.filter(f => f.blob).length > 0) && (
+                <span className="text-blue-600 font-bold">
+                  <Upload className="w-3 h-3 inline mr-1" />
+                  含 {tasks.flatMap(t => t.files.filter(f => f.blob)).length} 個檔案將上傳至 Drive。
+                  <br />
+                </span>
+              )}
               <span className="text-red-600 font-bold">送出後將進入稽核流程，無法自行修改。</span>
             </p>
             <div className="flex flex-col gap-3">
@@ -411,7 +554,7 @@ export default function TodayTasks() {
         </div>
       )}
 
-      {/* Submission Summary Modal (Success) */}
+      {/* 送出成功 Modal */}
       {showSummaryModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-emerald-900/40 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm bg-white rounded-[40px] p-8 shadow-elegant-lg overflow-hidden relative animate-fade-scale">
@@ -421,7 +564,7 @@ export default function TodayTasks() {
             </div>
             <h3 className="text-2xl font-black text-center text-slate-900 mb-2">上傳完成！</h3>
             <p className="text-sm text-center text-slate-500 mb-8 font-medium">系統已成功接收您的當日填報資訊</p>
-            
+
             <div className="bg-slate-50 rounded-3xl p-5 space-y-4 mb-8">
               <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-2">
                 <span>上傳明細摘要</span>
@@ -433,9 +576,9 @@ export default function TodayTasks() {
                   <span className="text-sm font-black text-slate-900">{lastSubmittedCount} 項</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600">預計獲得點數</span>
+                  <span className="text-sm font-bold text-slate-600">預計獲得金額</span>
                   <span className="text-sm font-black text-blue-700">
-                    {tasks.filter(t => t.status === "submitted").reduce((sum, t) => sum + t.points, 0).toLocaleString()} pt
+                    {tasks.filter(t => t.status === "submitted").reduce((sum, t) => sum + t.points, 0).toLocaleString()} 元
                   </span>
                 </div>
               </div>

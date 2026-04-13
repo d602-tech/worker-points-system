@@ -294,7 +294,7 @@ export function exportServiceFeeReport(
   rows: ServiceFeeRow[],
   month: string,
   orgName = '綜合施工處',
-  pointRate = 0.01
+  pointRate = 1
 ): void {
   const title = `${orgName} ${month} 服務費統計表`;
   const headers = [

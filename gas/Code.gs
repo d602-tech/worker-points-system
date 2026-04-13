@@ -35,7 +35,7 @@ const COLUMNS = {
     PASSWORD_HASH: '密碼雜湊', ROLE: '角色',
     DEPARTMENT: '所屬部門', AREA: '服務區域',
     WORKER_TYPE: '職務類型', ONBOARD_DATE: '到職日',
-    PAST_EXP_DAYS: '過往年資天數', IS_ACTIVE: '是否啟用',
+    PAST_EXP_DAYS: '過往年資天數', PAST_EXP_DETAIL: '過往年資明細', IS_ACTIVE: '是否啟用',
     CREATED_AT: '建立時間', LAST_LOGIN: '最後登入時間',
     LOGIN_METHOD: '登入方式',
   },
@@ -611,7 +611,8 @@ function upsertWorker(callerEmail, worker) {
       worker[COLUMNS.USERS.AREA]         || worker.area         || '',
       worker[COLUMNS.USERS.WORKER_TYPE]  || worker.workerType   || 'general',
       worker[COLUMNS.USERS.ONBOARD_DATE] || worker.onboardDate  || '',
-      worker[COLUMNS.USERS.PAST_EXP_DAYS]|| worker.pastExpDays  || 0,
+      worker[COLUMNS.USERS.PAST_EXP_DAYS]  || worker.pastExpDays   || 0,
+      worker[COLUMNS.USERS.PAST_EXP_DETAIL]|| worker.pastExpDetail || '',
       (worker[COLUMNS.USERS.IS_ACTIVE] !== undefined) ? worker[COLUMNS.USERS.IS_ACTIVE]
         : (worker.isActive !== undefined ? worker.isActive : true),
       (targetRow === -1) ? now : data[targetRow - 1][headers.indexOf(COLUMNS.USERS.CREATED_AT)],
@@ -1788,15 +1789,15 @@ function setupTestAccounts() {
 
   var now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
   var accounts = [
-    // [人員編號, 姓名, 電子信箱, 密碼雜湊, 角色, 所屬部門, 服務區域, 職務類型, 到職日, 過往年資天數, 是否啟用, 建立時間, 最後登入時間, 登入方式]
-    ['ADM-001','系統管理員','admin@test.com',       testHash,'admin',   '工安組',   '處本部', 'safety',      now, 0, true, now, '', 'password'],
-    ['MGR-001','工程隊長A', 'deptmgr@test.com',     testHash,'deptMgr', '土木工作隊','處本部', 'safety',      now, 0, true, now, '', 'password'],
-    ['BIL-001','請款專員',  'billing@test.com',     testHash,'billing', '工安組',   '處本部', 'safety',      now, 0, true, now, '', 'password'],
-    ['WRK-001','一般協助員','worker_gen@test.com',  testHash,'worker',  '土木工作隊','大潭',   'general',     now, 0, true, now, '', 'password'],
-    ['WRK-002','離島協助員','worker_off@test.com',  testHash,'worker',  '建築工作隊','金門',   'offshore',    now, 0, true, now, '', 'password'],
-    ['WRK-003','職安管理員','worker_saf@test.com',  testHash,'worker',  '工安組',   '處本部', 'safety',      now, 0, true, now, '', 'password'],
-    ['WRK-004','環保人員',  'worker_env@test.com',  testHash,'worker',  '工安組',   '大潭',   'environment', now, 0, true, now, '', 'password'],
-    ['WRK-005','測試工程師','worker_test@test.com', testHash,'worker',  '土木工作隊','通霄',   'general',     now, 0, true, now, '', 'password'],
+    // [人員編號, 姓名, 電子信箱, 密碼雜湊, 角色, 所屬部門, 服務區域, 職務類型, 到職日, 過往年資天數, 過往年資明細, 是否啟用, 建立時間, 最後登入時間, 登入方式]
+    ['ADM-001','系統管理員','admin@test.com',       testHash,'admin',   '工安組',   '處本部', 'safety',      now, 0, '', true, now, '', 'password'],
+    ['MGR-001','工程隊長A', 'deptmgr@test.com',     testHash,'deptMgr', '土木工作隊','處本部', 'safety',      now, 0, '', true, now, '', 'password'],
+    ['BIL-001','請款專員',  'billing@test.com',     testHash,'billing', '工安組',   '處本部', 'safety',      now, 0, '', true, now, '', 'password'],
+    ['WRK-001','一般協助員','worker_gen@test.com',  testHash,'worker',  '土木工作隊','大潭',   'general',     now, 0, '', true, now, '', 'password'],
+    ['WRK-002','離島協助員','worker_off@test.com',  testHash,'worker',  '建築工作隊','金門',   'offshore',    now, 0, '', true, now, '', 'password'],
+    ['WRK-003','職安管理員','worker_saf@test.com',  testHash,'worker',  '工安組',   '處本部', 'safety',      now, 0, '', true, now, '', 'password'],
+    ['WRK-004','環保人員',  'worker_env@test.com',  testHash,'worker',  '工安組',   '大潭',   'environment', now, 0, '', true, now, '', 'password'],
+    ['WRK-005','測試工程師','worker_test@test.com', testHash,'worker',  '土木工作隊','通霄',   'general',     now, 0, '', true, now, '', 'password'],
   ];
 
   // 清除現有資料（保留標頭）

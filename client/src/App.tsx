@@ -21,6 +21,7 @@ import ReportSummary from "./pages/admin/ReportSummary";
 import ReportLeave from "./pages/admin/ReportLeave";
 import ReportFee from "./pages/admin/ReportFee";
 import AdminConfig from "./pages/admin/AdminConfig";
+import Changelog from "./pages/admin/Changelog";
 
 function Router() {
   return (
@@ -119,6 +120,13 @@ function Router() {
         {() => (
           <AdminLayout tab="config">
             <AdminConfig />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/changelog">
+        {() => (
+          <AdminLayout tab="changelog">
+            <Changelog />
           </AdminLayout>
         )}
       </Route>
