@@ -133,24 +133,24 @@ export async function pingGas(): Promise<{ ok: boolean; version?: string; error?
 }
 
 // ============================================================
-// 人員名冊 API
+// 人員資料 API
 // ============================================================
 
 export interface WorkerRow {
-  id: string;
-  name: string;
-  accountType: string;
-  email: string;
-  dept: string;
-  area: string;
-  workerType: string;
-  onboardDate: string;
-  leaveDate: string;
-  status: string;
-  experienceDays: number;
-  note: string;
-  createdAt: string;
-  updatedAt: string;
+  userId: string;        // 人員編號
+  name: string;          // 姓名
+  email: string;         // 電子信箱
+  passwordHash: string;  // 密碼雜湊
+  role: string;          // 角色（admin/deptMgr/billing/worker）
+  department: string;    // 所屬部門
+  area: string;          // 服務區域
+  workerType: string;    // 職務類型（general/offshore/safety/environment）
+  onboardDate: string;   // 到職日
+  pastExpDays: number;   // 過往年資天數
+  isActive: boolean;     // 是否啟用
+  createdAt: string;     // 建立時間
+  lastLoginAt: string;   // 最後登入時間
+  loginMethod: string;   // 登入方式
 }
 
 export async function getWorkers(): Promise<GasResponse<WorkerRow[]>> {
@@ -161,26 +161,41 @@ export async function upsertWorker(worker: Partial<WorkerRow>): Promise<GasRespo
   return gasPost<WorkerRow>("upsertWorker", { worker });
 }
 
+export async function deleteWorker(userId: string): Promise<GasResponse<void>> {
+  return gasPost<void>("deleteWorker", { userId });
+}
+
 // ============================================================
 // 差勤紀錄 API
 // ============================================================
 
 export interface AttendanceRow {
-  id: string;
-  workerId: string;
-  date: string;
-  type: string;
-  hours: number;
-  note: string;
-  createdAt: string;
+  userId: string;        // 人員編號
+  date: string;          // 日期（YYYY-MM-DD）
+  amStatus: string;      // 上午狀態（/, 特4, 病4, 代_姓名, 曠 等）
+  pmStatus: string;      // 下午狀態
+  workHours: number;     // 有效工時
+  leaveHours: number;    // 特休時數
+  source: string;        // 資料來源（auto/planned/actual）
+  isFinalized: boolean;  // 是否鎖定
+  note: string;          // 備註
+  updatedAt: string;     // 最後更新時間
 }
 
-export async function getAttendance(workerId: string, yearMonth: string): Promise<GasResponse<AttendanceRow[]>> {
-  return gasGet<AttendanceRow[]>("getAttendance", { workerId, yearMonth });
+export async function getAttendance(userId: string, yearMonth: string): Promise<GasResponse<AttendanceRow[]>> {
+  return gasGet<AttendanceRow[]>("getAttendance", { userId, yearMonth });
 }
 
 export async function upsertAttendance(record: Partial<AttendanceRow>): Promise<GasResponse<AttendanceRow>> {
   return gasPost<AttendanceRow>("upsertAttendance", { record });
+}
+
+export async function generateMonthlyAttendance(yearMonth: string): Promise<GasResponse<void>> {
+  return gasPost<void>("generateMonthlyAttendance", { yearMonth });
+}
+
+export async function finalizeAttendance(yearMonth: string): Promise<GasResponse<void>> {
+  return gasPost<void>("finalizeAttendance", { yearMonth });
 }
 
 // ============================================================
@@ -256,12 +271,15 @@ export async function getReviewList(status?: string): Promise<GasResponse<unknow
   return gasGet("getReviewList", params);
 }
 
+export type ReviewAction = "初審通過" | "退回修改" | "廠商確認" | "廠商退回" | "已請款";
+
 export async function reviewRecord(
-  recordId: string,
-  action: "approve" | "reject",
+  workerId: string,
+  yearMonth: string,
+  action2: ReviewAction,
   reason?: string
 ): Promise<GasResponse<void>> {
-  return gasPost<void>("reviewRecord", { recordId, action, reason: reason || "" });
+  return gasPost<void>("reviewMonthlyReport", { workerId, yearMonth, action2, reason: reason || "" });
 }
 
 // ============================================================

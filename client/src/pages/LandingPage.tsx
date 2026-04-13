@@ -224,7 +224,7 @@ export default function LandingPage() {
               登入系統
             </DialogTitle>
             <DialogDescription>
-              請選擇登入方式。帳號由管理員在人員名冊中設定。
+              請選擇登入方式。帳號由管理員在人員資料中設定。
             </DialogDescription>
           </DialogHeader>
 
@@ -284,7 +284,7 @@ export default function LandingPage() {
               {GOOGLE_CLIENT_ID ? (
                 <>
                   <p className="text-sm text-muted-foreground text-center">
-                    使用您的 Google 帳號登入，系統將自動比對人員名冊中的 Email。
+                    使用您的 Google 帳號登入，系統將自動比對人員資料中的 Email。
                   </p>
                   {/* GSI 渲染目標 */}
                   <div ref={googleBtnRef} className="flex justify-center" />

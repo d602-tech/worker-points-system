@@ -5,17 +5,17 @@ import { Button } from "@/components/ui/button";
 import { exportLeaveStatReport } from "@/lib/exportExcel";
 
 const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
-const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "暠職"];
+const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "曠職"];
 
 const MOCK_DATA = [
   { id: "W001", name: "王小明", type: "一般工地協助員",
-    leave: { "上班": 18, "特休": 2, "病假": 1, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "暠職": 0 } },
-  { id: "W002", name: "李大華", type: "機電協助員",
-    leave: { "上班": 20, "特休": 0, "病假": 0, "事假": 1, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "暠職": 0 } },
+    leave: { "上班": 18, "特休": 2, "病假": 1, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
+  { id: "W002", name: "李大華", type: "離島工地協助員",
+    leave: { "上班": 20, "特休": 0, "病假": 0, "事假": 1, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
   { id: "W003", name: "陳美玲", type: "一般工地協助員",
-    leave: { "上班": 19, "特休": 1, "病假": 0, "事假": 0, "婚假": 0, "喪假": 0, "公假": 1, "代理": 0, "暠職": 0 } },
-  { id: "W004", name: "張志偉", type: "行政協助員",
-    leave: { "上班": 15, "特休": 3, "病假": 2, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "暠職": 0 } },
+    leave: { "上班": 19, "特休": 1, "病假": 0, "事假": 0, "婚假": 0, "喪假": 0, "公假": 1, "代理": 0, "曠職": 0 } },
+  { id: "W004", name: "張志偉", type: "職安業務兼管理員",
+    leave: { "上班": 15, "特休": 3, "病假": 2, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
 ];
 
 export default function ReportLeave() {
@@ -83,7 +83,7 @@ export default function ReportLeave() {
                     {LEAVE_TYPES.map(lt => (
                       <td key={lt} className={cn("px-4 py-3 text-center",
                         lt === "上班" ? "font-semibold text-emerald-700" :
-                        lt === "暠職" && w.leave["暠職"] > 0 ? "text-red-600 font-semibold" :
+                        lt === "曠職" && w.leave["曠職"] > 0 ? "text-red-600 font-semibold" :
                         w.leave[lt as keyof typeof w.leave] > 0 ? "text-amber-700" : "text-muted-foreground/40")}>
                         {w.leave[lt as keyof typeof w.leave] || "-"}
                       </td>

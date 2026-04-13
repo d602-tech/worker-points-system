@@ -49,7 +49,7 @@ export default function TodayTasks() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // 從登入使用者 profile 取得協助員類型
-  const workerType = useMemo(() => user?.workerType || "一般工地協助員", [user?.workerType]);
+  const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
   const dailyItems = useMemo(() => getDailyItems(workerType), [workerType]);
 
   const [tasks, setTasks] = useState<TaskItem[]>(() =>

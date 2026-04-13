@@ -30,7 +30,7 @@ const PERF_LEVELS = [
 
 export default function MonthlyReport() {
   const { user } = useGasAuthContext();
-  const workerType = useMemo(() => user?.workerType || "一般工地協助員", [user?.workerType]);
+  const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
   const monthlyItemDefs = useMemo(() => getMonthlyItems(workerType), [workerType]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   

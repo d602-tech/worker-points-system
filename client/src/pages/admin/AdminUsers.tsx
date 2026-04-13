@@ -10,17 +10,17 @@ import { gasPost } from "@/lib/gasApi";
 import { hashPassword } from "@/lib/useGasAuth";
 
 interface Worker {
-  id: string; name: string; email: string; department: string;
+  userId: string; name: string; email: string; department: string;
   area: string; workerType: string; onboardDate: string;
   status: "在職" | "離職" | "停職"; pastExpDays: number;
 }
 
 const MOCK_WORKERS: Worker[] = [
-  { id: "W001", name: "王小明", email: "wang@example.com", department: "土木工作隊", area: "大潭", workerType: "一般工地協助員", onboardDate: "2025-01-01", status: "在職", pastExpDays: 120 },
-  { id: "W002", name: "李大華", email: "li@example.com", department: "機電工作隊", area: "林口", workerType: "機電協助員", onboardDate: "2025-03-15", status: "在職", pastExpDays: 45 },
-  { id: "W003", name: "陳美玲", email: "chen@example.com", department: "土木工作隊", area: "大潭", workerType: "一般工地協助員", onboardDate: "2024-09-01", status: "在職", pastExpDays: 210 },
-  { id: "W004", name: "張志偉", email: "zhang@example.com", department: "行政組", area: "總部", workerType: "行政協助員", onboardDate: "2025-06-01", status: "停職", pastExpDays: 30 },
-  { id: "W005", name: "劉雅婷", email: "liu@example.com", department: "機電工作隊", area: "通霄", workerType: "機電協助員", onboardDate: "2024-12-01", status: "離職", pastExpDays: 90 },
+  { userId: "W001", name: "王小明", email: "wang@example.com", department: "土木工作隊", area: "大潭", workerType: "一般工地協助員", onboardDate: "2025-01-01", status: "在職", pastExpDays: 120 },
+  { userId: "W002", name: "李大華", email: "li@example.com", department: "土木工作隊", area: "林口", workerType: "一般工地協助員", onboardDate: "2025-03-15", status: "在職", pastExpDays: 45 },
+  { userId: "W003", name: "陳美玲", email: "chen@example.com", department: "土木工作隊", area: "大潭", workerType: "離島工地協助員", onboardDate: "2024-09-01", status: "在職", pastExpDays: 210 },
+  { userId: "W004", name: "張志偉", email: "zhang@example.com", department: "職安組", area: "總部", workerType: "職安業務兼管理員", onboardDate: "2025-06-01", status: "停職", pastExpDays: 30 },
+  { userId: "W005", name: "劉雅婷", email: "liu@example.com", department: "環保組", area: "通霄", workerType: "環保業務人員", onboardDate: "2024-12-01", status: "離職", pastExpDays: 90 },
 ];
 
 const STATUS_BADGE: Record<Worker["status"], string> = {
@@ -29,7 +29,7 @@ const STATUS_BADGE: Record<Worker["status"], string> = {
   "停職": "bg-amber-100 text-amber-700 border-amber-200",
 };
 
-const WORKER_TYPES = ["全部", "一般工地協助員", "機電協助員", "行政協助員"];
+const WORKER_TYPES = ["全部", "一般工地協助員", "離島工地協助員", "職安業務兼管理員", "環保業務人員"];
 const AREAS = ["全部", "大潭", "林口", "通霄", "總部"];
 
 // ── 設定密碼 Modal ────────────────────────────────────────
@@ -52,7 +52,7 @@ function SetPasswordModal({
     setSaving(true);
     try {
       const passwordHash = await hashPassword(newPwd);
-      const res = await gasPost("setWorkerPassword", { workerId: worker.id, passwordHash });
+      const res = await gasPost("setWorkerPassword", { userId: worker.userId, passwordHash });
       if (res.success) {
         toast.success(`${worker.name} 的密碼已設定`);
         onClose();
@@ -124,7 +124,7 @@ export default function AdminUsers() {
   const [pwdWorker, setPwdWorker] = useState<Worker | null>(null);
 
   const filtered = MOCK_WORKERS.filter(w => {
-    const matchSearch = !search || w.name.includes(search) || w.id.includes(search) || w.email.includes(search);
+    const matchSearch = !search || w.name.includes(search) || w.userId.includes(search) || w.email.includes(search);
     const matchType = filterType === "全部" || w.workerType === filterType;
     const matchArea = filterArea === "全部" || w.area === filterArea;
     return matchSearch && matchType && matchArea;
@@ -202,8 +202,8 @@ export default function AdminUsers() {
                   </td>
                 </tr>
               ) : filtered.map((w, idx) => (
-                <tr key={w.id} className={cn("border-b border-border/30 hover:bg-muted/20 transition-colors", idx % 2 === 0 ? "" : "bg-muted/10")}>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{w.id}</td>
+                <tr key={w.userId} className={cn("border-b border-border/30 hover:bg-muted/20 transition-colors", idx % 2 === 0 ? "" : "bg-muted/10")}>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{w.userId}</td>
                   <td className="px-4 py-3 font-medium text-foreground">{w.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{w.department}</td>
                   <td className="px-4 py-3 text-muted-foreground">{w.area}</td>
@@ -243,7 +243,7 @@ export default function AdminUsers() {
         </div>
         <div className="px-4 py-3 border-t border-border/30 flex items-center justify-between text-xs text-muted-foreground">
           <span>顯示 {filtered.length} / {MOCK_WORKERS.length} 筆</span>
-          <span>資料來源：Google Sheets「人員名冊」分頁</span>
+          <span>資料來源：Google Sheets「人員資料」分頁</span>
         </div>
       </div>
 

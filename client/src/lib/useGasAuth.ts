@@ -11,7 +11,7 @@
  *   B. 帳號密碼登入
  *      → 前端 SHA-256(密碼) → hex
  *      → POST GAS { action: "passwordLogin", email, passwordHash }
- *      → GAS 比對人員名冊「密碼雜湊」欄
+ *      → GAS 比對人員資料「密碼雜湊」欄
  *
  * 使用者資訊結構（localStorage["gas_user"]）：
  *   { id, name, accountType, email, dept, area, workerType, role }
@@ -24,23 +24,13 @@ const USER_KEY = "gas_user";
 const EMAIL_KEY = "gas_caller_email";
 
 export interface GasUser {
-  id: string;
-  name: string;
-  accountType: string;  // 管理者 / 部門管理員 / 廠商請款人員 / 協助員
-  email: string;
-  dept: string;
-  area: string;
-  workerType: string;
-  role: "admin" | "dept_mgr" | "billing" | "worker";
-}
-
-function accountTypeToRole(accountType: string): GasUser["role"] {
-  switch (accountType) {
-    case "管理者": return "admin";
-    case "部門管理員": return "dept_mgr";
-    case "廠商請款人員": return "billing";
-    default: return "worker";
-  }
+  id: string;          // 人員編號
+  name: string;        // 姓名
+  email: string;       // 電子信箱
+  dept: string;        // 所屬部門
+  area: string;        // 服務區域
+  workerType: string;  // 職務類型（English enum: general/offshore/safety/environment）
+  role: "admin" | "deptMgr" | "billing" | "worker";  // 角色（English enum）
 }
 
 export function getStoredUser(): GasUser | null {
@@ -102,19 +92,18 @@ async function fetchProfile(email: string): Promise<{ user: GasUser | null; erro
 
   const json = await res.json() as { success: boolean; data?: Record<string, unknown>; error?: string };
   if (!json.success || !json.data) {
-    return { user: null, error: json.error || "找不到此帳號，請確認是否已加入人員名冊。" };
+    return { user: null, error: json.error || "找不到此帳號，請確認是否已加入人員資料。" };
   }
 
   const d = json.data;
   const user: GasUser = {
-    id: String(d["工號"] || ""),
+    id: String(d["人員編號"] || ""),
     name: String(d["姓名"] || ""),
-    accountType: String(d["帳號類型"] || "協助員"),
-    email: String(d["Email"] || email),
-    dept: String(d["部門"] || ""),
+    email: String(d["電子信箱"] || email),
+    dept: String(d["所屬部門"] || ""),
     area: String(d["服務區域"] || ""),
-    workerType: String(d["協助員類型"] || ""),
-    role: accountTypeToRole(String(d["帳號類型"] || "")),
+    workerType: String(d["職務類型"] || "general"),
+    role: (String(d["角色"] || "worker")) as GasUser["role"],
   };
   return { user, error: null };
 }
@@ -188,14 +177,13 @@ export function useGasAuth() {
       }
       const d = json.data;
       const user: GasUser = {
-        id: String(d["工號"] || ""),
+        id: String(d["人員編號"] || ""),
         name: String(d["姓名"] || ""),
-        accountType: String(d["帳號類型"] || "協助員"),
-        email: String(d["Email"] || email),
-        dept: String(d["部門"] || ""),
+        email: String(d["電子信箱"] || email),
+        dept: String(d["所屬部門"] || ""),
         area: String(d["服務區域"] || ""),
-        workerType: String(d["協助員類型"] || ""),
-        role: accountTypeToRole(String(d["帳號類型"] || "")),
+        workerType: String(d["職務類型"] || "general"),
+        role: (String(d["角色"] || "worker")) as GasUser["role"],
       };
       storeUser(user);
       setState({ user, loading: false, error: null, isAuthenticated: true });
