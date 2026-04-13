@@ -19,7 +19,13 @@
 
 4. **Google Sheets 欄位名稱使用繁體中文**：所有分頁名稱與欄位標頭必須使用 COLUMNS / SHEETS 常數中定義的繁體中文名稱，程式碼中透過常數引用，不得硬編碼中文字串。
 
-5. **GAS 檔案架構**：目前採用多檔案分離架構（Init.gs / API.gs / DriveUpload.gs / TestAccounts.gs），以 `// ========== [區塊名稱] ==========` 分隔各功能模組。
+5. **GAS 檔案架構**：v3.0 起採用**單一檔案架構**（`gas/Code.gs`），以 `// ========== [區塊名稱] ==========` 分隔各功能模組。不再有 Init.gs / API.gs / DriveUpload.gs / TestAccounts.gs。
+
+6. **Schema 欄位名稱與 Enum 必須對齊 v3.0**：
+   - 角色欄位儲存 English enum：`admin` / `deptMgr` / `billing` / `worker`
+   - 職務類型欄位儲存 English enum：`general` / `offshore` / `safety` / `environment`
+   - 點數 ID 前綴：`GEN-` / `OFF-` / `SAF-` / `ENV-`（不再使用 G-/O-/S-/E-）
+   - 所有欄位名稱以規格書第 12.3 節為準（人員編號/電子信箱/角色/職務類型…）
 
 ---
 
@@ -32,10 +38,7 @@
 ├── DEPLOYMENT.md                # 部署指南
 ├── GAS_UPDATE_GUIDE.md          # GAS 端更新指引
 ├── 📁 gas/                      # Google Apps Script
-│   ├── Init.gs                  # 初始化 + 路由分發 (doGet/doPost)
-│   ├── API.gs                   # API handler 輔助函式
-│   ├── DriveUpload.gs           # Google Drive 檔案上傳
-│   └── TestAccounts.gs          # 測試帳號建立
+│   └── Code.gs                  # 單一後端檔案（doGet/doPost/initAll/API/Drive/TestAccounts）
 ├── 📁 client/                   # React 前端（Vite 建置）
 │   ├── index.html               # 入口 HTML（含 SPA 路由還原）
 │   ├── 📁 public/               # 靜態資源
@@ -65,15 +68,15 @@
 
 ## 🔧 程式碼規範
 
-### GAS (Init.gs / API.gs)
+### GAS (gas/Code.gs)
 
 - 函式命名：camelCase（如 `handleLogin`, `getDailyPoints`）
-- 區塊順序：常數 → 路由 → 初始化 → 登入 → 使用者 → 差勤 → 點數 → 審核 → 報表 → 檔案 → 通知 → 遷移 → 日誌 → 設定 → 工具
-- 所有 Sheet 操作必須透過 `SHEET_NAMES.XXX` 常數取得分頁名稱，不得硬編碼
+- 區塊順序：常數 → 路由 → 初始化 → 登入 → 使用者 → 差勤 → 點數 → 審核 → 報表 → 檔案 → 通知 → 日誌 → 設定 → 工具 → 測試帳號
+- 所有 Sheet 操作必須透過 `SHEETS.XXX` 常數取得分頁名稱，不得硬編碼
 - 錯誤處理：所有 API 端點必須 try-catch，回傳 `{ success, error?, data? }` 格式
-- 併發控制：寫入操作必須使用 `LockService.getScriptLock()`
-- 權限檢查：敏感端點需呼叫 `checkPermission(e, allowedRoles)`
-- doGet / doPost 統一定義於 Init.gs，API.gs 僅包含 handler 輔助函式
+- 併發控制：寫入操作必須使用 `LockService.getScriptLock().waitLock(10000)`
+- 權限檢查：敏感端點需呼叫 `checkPermission(callerEmail, allowedRoles)`
+- doGet / doPost 均在 Code.gs 頂部定義，所有 handler 在同一檔案
 
 ### React 前端
 
