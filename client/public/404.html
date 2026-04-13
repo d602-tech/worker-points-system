@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>115年度協助員點數管理系統</title>
+    <script>
+      // GitHub Pages SPA 路由重定向技巧
+      // 將子路由的路徑編碼到 URL 的 query string，再由 index.html 解碼還原
+      var segmentCount = 1; // repo 名稱佔一個 segment
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + segmentCount).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(segmentCount).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body>
+    正在重定向...
+  </body>
+</html>

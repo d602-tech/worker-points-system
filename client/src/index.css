@@ -1,0 +1,248 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "yet-another-react-lightbox/styles.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  /* ---- 字型 ---- */
+  --font-sans: "Noto Sans TC", "Inter", system-ui, sans-serif;
+
+  /* ---- 工作類別色塊 (嚴格沿用計價網頁規範) ---- */
+  --cat-a-bg: #FFFFFF; --cat-a-fg: #000000;
+  --cat-b-bg: #E5E5E5; --cat-b-fg: #000000;
+  --cat-c-bg: #737373; --cat-c-fg: #FFFFFF;
+  --cat-d-bg: #000000; --cat-d-fg: #FFFFFF;
+  --cat-s-bg: #FEF3C7; --cat-s-fg: #92400E;
+  --cat-p-bg: #FEE2E2; --cat-p-fg: #991B1B;
+
+  --primary: var(--color-blue-700);
+  --primary-foreground: var(--color-blue-50);
+  --sidebar-primary: var(--color-blue-600);
+  --sidebar-primary-foreground: var(--color-blue-50);
+  --chart-1: var(--color-blue-300);
+  --chart-2: var(--color-blue-500);
+  --chart-3: var(--color-blue-600);
+  --chart-4: var(--color-blue-700);
+  --chart-5: var(--color-blue-800);
+  --radius: 0.5rem;
+  --background: oklch(0.985 0.003 247);
+  --foreground: oklch(0.15 0.015 247);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.015 247);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.015 247);
+  --secondary: oklch(0.94 0.008 247);
+  --secondary-foreground: oklch(0.32 0.06 247);
+  --muted: oklch(0.96 0.005 247);
+  --muted-foreground: oklch(0.52 0.02 247);
+  --accent: oklch(0.92 0.015 247);
+  --accent-foreground: oklch(0.25 0.05 247);
+  --border: oklch(0.88 0.008 247);
+  --input: oklch(0.88 0.008 247);
+  --ring: oklch(0.45 0.08 247);
+  --sidebar: oklch(0.985 0.003 247);
+  --sidebar-foreground: oklch(0.15 0.015 247);
+  --sidebar-accent: oklch(0.92 0.015 247);
+  --sidebar-accent-foreground: oklch(0.25 0.05 247);
+  --sidebar-border: oklch(0.88 0.008 247);
+  --sidebar-ring: oklch(0.45 0.08 247);
+}
+
+.dark {
+  --primary: var(--color-blue-700);
+  --primary-foreground: var(--color-blue-50);
+  --sidebar-primary: var(--color-blue-500);
+  --sidebar-primary-foreground: var(--color-blue-50);
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.85 0.005 65);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.85 0.005 65);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.85 0.005 65);
+  --secondary: oklch(0.24 0.006 286.033);
+  --secondary-foreground: oklch(0.7 0.005 65);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground:  oklch(0.92 0.005 65);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.488 0.243 264.376);
+  --chart-1: var(--color-blue-300);
+  --chart-2: var(--color-blue-500);
+  --chart-3: var(--color-blue-600);
+  --chart-4: var(--color-blue-700);
+  --chart-5: var(--color-blue-800);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.85 0.005 65);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground:  oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.488 0.243 264.376);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer utilities {
+  /* 工作類別色塊 */
+  .cat-a { background-color: var(--cat-a-bg); color: var(--cat-a-fg); }
+  .cat-b { background-color: var(--cat-b-bg); color: var(--cat-b-fg); }
+  .cat-c { background-color: var(--cat-c-bg); color: var(--cat-c-fg); }
+  .cat-d { background-color: var(--cat-d-bg); color: var(--cat-d-fg); }
+  .cat-s { background-color: var(--cat-s-bg); color: var(--cat-s-fg); }
+  .cat-p { background-color: var(--cat-p-bg); color: var(--cat-p-fg); }
+
+  /* 審核狀態 */
+  .status-draft     { @apply bg-slate-100 text-slate-600 border border-slate-200; }
+  .status-submitted { @apply bg-blue-50 text-blue-700 border border-blue-200; }
+  .status-approved  { @apply bg-emerald-50 text-emerald-700 border border-emerald-200; }
+  .status-rejected  { @apply bg-red-50 text-red-700 border border-red-200; }
+
+  /* 報表表格 */
+  .report-table { @apply w-full border-collapse text-sm; }
+  .report-table th { @apply bg-gray-100 font-semibold text-center border border-gray-800 px-2 py-1; }
+  .report-table td { @apply border border-gray-800 px-2 py-1 text-center; }
+  .report-table tfoot td { @apply font-bold border-t-2 border-gray-800; }
+
+  /* 陰影層次 */
+  .shadow-elegant    { box-shadow: 0 1px 3px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.04); }
+  .shadow-elegant-md { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), 0 8px 32px rgb(0 0 0 / 0.08), 0 0 0 1px rgb(0 0 0 / 0.05); }
+  .shadow-elegant-lg { box-shadow: 0 4px 16px rgb(0 0 0 / 0.1), 0 16px 48px rgb(0 0 0 / 0.1), 0 0 0 1px rgb(0 0 0 / 0.06); }
+
+  /* 玻璃態 */
+  .glass { backdrop-filter: blur(12px) saturate(180%); background: rgb(255 255 255 / 0.85); border: 1px solid rgb(255 255 255 / 0.3); }
+
+  /* 安全區 */
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .bottom-safe { bottom: max(0px, env(safe-area-inset-bottom)); }
+
+  /* 漸層文字 */
+  .text-gradient { background: linear-gradient(135deg, oklch(0.32 0.06 247), oklch(0.55 0.15 247)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+}
+
+/* Print styles */
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body { font-size: 10pt; color: #000; background: #fff; }
+  .report-table th, .report-table td { border: 1px solid #000 !important; padding: 3px 6px !important; }
+  @page { margin: 1.5cm; }
+}
+
+/* Animations */
+@keyframes slide-up { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes fade-scale { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-fade-scale { animation: fade-scale 0.2s ease-out; }
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+}
