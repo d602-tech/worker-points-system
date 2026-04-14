@@ -329,3 +329,60 @@
     }
   }
 }
+
+/* ========== @media print 共用規則 ==========
+ * 適用：AdminAttendance (A4 橫式)、ReportSummary (A4 橫式)、
+ *        ReportLeave (A4 橫式)、ReportFee (A4 直式)
+ */
+@media print {
+  /* 隱藏導覽列、Header、Footer、操作按鈕 */
+  header, footer, nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* 頁面背景白色，移除陰影 */
+  body {
+    background: white !important;
+  }
+
+  /* 報表卡片陰影移除 */
+  .shadow-elegant,
+  .shadow-elegant-lg,
+  .shadow-elegant-md {
+    box-shadow: none !important;
+  }
+
+  /* 強制表格框線 */
+  table, th, td {
+    border-color: #d1d5db !important;
+  }
+
+  /* 保留狀態標籤底色（避免瀏覽器列印時去除背景色） */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* A4 橫式（差勤統計表、工作月報表、出勤暨特休統計表） */
+  .print-landscape {
+    size: A4 landscape;
+  }
+
+  /* A4 直式（每月工作量彙總表、服務費統計） */
+  .print-portrait {
+    size: A4 portrait;
+  }
+
+  /* 預設 A4 橫式（報表頁面較多欄位） */
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  /* 服務費統計表覆蓋為直式 */
+  .page-portrait @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+}

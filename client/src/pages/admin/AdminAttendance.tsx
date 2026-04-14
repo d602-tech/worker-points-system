@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -188,13 +188,16 @@ export default function AdminAttendance() {
   const workerName = MOCK_WORKERS.find(w => w.userId === selectedWorker)?.name || "";
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 print:space-y-4">
+      <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">差勤管理</h1>
           <p className="text-sm text-muted-foreground mt-0.5">點擊日期格子可編輯上午／下午差勤狀態</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
+            <Printer className="w-4 h-4" />列印
+          </Button>
           <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted transition-colors">
             <ChevronLeft className="w-4 h-4 text-muted-foreground" />
@@ -209,7 +212,12 @@ export default function AdminAttendance() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-start">
+      <div className="hidden print:block text-center mb-4">
+        <h2 className="text-lg font-bold">115年度協助員點數管理系統</h2>
+        <h3 className="text-base">差勤統計表 — {format(currentMonth, "yyyy年M月", { locale: zhTW })} — {workerName}</h3>
+      </div>
+
+      <div className="flex flex-wrap gap-3 items-start print:hidden">
         <div className="flex gap-2 flex-wrap">
           {MOCK_WORKERS.map(w => (
             <button key={w.userId} onClick={() => setSelectedWorker(w.userId)}

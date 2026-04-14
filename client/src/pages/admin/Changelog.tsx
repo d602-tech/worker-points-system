@@ -1,5 +1,7 @@
+import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Wrench, Plus, ArrowUpCircle, BookOpen, FileText } from "lucide-react";
+import { useGasAuthContext } from "@/lib/useGasAuth";
 
 // ============================================================
 // 型別
@@ -24,6 +26,18 @@ interface VersionRecord {
 // ============================================================
 
 const VERSIONS: VersionRecord[] = [
+  {
+    version: "v3.2",
+    date: "2026-04-14",
+    title: "1140414 第1次修正",
+    entries: [
+      { type: "fix",     text: "ReportFee Mock 資料區域錯誤修正：W002「林口」→「大潭」、W004「總部」→「處本部」" },
+      { type: "fix",     text: "CalendarOverview 請假送出：gasPost(upsertAttendance) 補上 callerEmail，修正 GAS 端權限驗證失敗問題" },
+      { type: "new",     text: "TodayTasks 過去日期「已送出詳情」唯讀區塊：切換至過去已完結日期時，顯示歷史填報摘要（工作項目、金額、佐證連結），取代可編輯 UI" },
+      { type: "rule",    text: "更新歷程頁面 Admin-only 權限控管：AdminLayout 依 role 過濾 changelog tab，非 admin 直接訪問 /admin/changelog 自動導向 /admin" },
+      { type: "export",  text: "AdminAttendance / ReportSummary / ReportLeave 補充列印按鈕（window.print()）與 @media print A4 橫式 CSS 規則" },
+    ],
+  },
   {
     version: "v3.1",
     date: "2026-04-14",
@@ -98,6 +112,14 @@ const VERSION_COLORS: string[] = [
 // ============================================================
 
 export default function Changelog() {
+  const { user } = useGasAuthContext();
+  const [, navigate] = useLocation();
+
+  if (user && user.role !== "admin") {
+    navigate("/admin");
+    return null;
+  }
+
   return (
     <div className="max-w-3xl space-y-6">
       {/* Page header */}

@@ -88,7 +88,7 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
 
         {/* Tab Navigation */}
         <div className="flex items-stretch overflow-x-auto border-t border-border/50 px-2 scrollbar-hide">
-          {TABS.map(({ id, path, icon: Icon, label }) => {
+          {TABS.filter(t => t.id !== "changelog" || user?.role === "admin").map(({ id, path, icon: Icon, label }) => {
             const isActive = tab === id;
             return (
               <Link key={id} href={path}>

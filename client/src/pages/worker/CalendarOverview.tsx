@@ -243,6 +243,7 @@ export default function CalendarOverview() {
 
       // 4. 寫入差勤
       await gasPost("upsertAttendance", {
+        callerEmail: user.email,
         record: {
           userId: user.id, date: selectedDate,
           amStatus, pmStatus, source: "actual",
