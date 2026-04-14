@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronLeft, ChevronRight, TrendingUp, Send,
-  AlertCircle, Camera, Upload, X, Loader2, FileText, CheckSquare, Square,
+  AlertCircle, Camera, Upload, X, Loader2, FileText, CheckCircle2, Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -506,8 +506,8 @@ export default function MonthlyReport() {
                     )}
                   >
                     {item.quantity > 0
-                      ? <CheckSquare className="w-6 h-6 text-blue-600 flex-shrink-0" />
-                      : <Square className="w-6 h-6 text-slate-300 flex-shrink-0" />
+                      ? <CheckCircle2 className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                      : <Circle className="w-6 h-6 text-slate-300 flex-shrink-0" />
                     }
                     <div className="flex-1 text-left">
                       <div className={cn(
