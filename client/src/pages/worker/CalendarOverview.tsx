@@ -465,6 +465,7 @@ export default function CalendarOverview() {
 
       {/* ── Calendar Grid ── */}
       {viewMode === "calendar" && (
+      <>
       <div className="px-4 py-4">
         {/* Weekday headers */}
         <div className="grid grid-cols-7 mb-2">
@@ -526,6 +527,7 @@ export default function CalendarOverview() {
           </div>
         </div>
       </div>
+      </>
       )}
 
       {/* ── Bottom Drawer ── */}
