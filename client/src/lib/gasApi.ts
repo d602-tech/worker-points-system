@@ -107,7 +107,8 @@ export async function gasPost<T = unknown>(
     const res = await fetch(url, {
       method: "POST",
       redirect: "follow",
-      headers: { "Content-Type": "application/json" },
+      // 使用 text/plain 避免 CORS preflight（GAS 不支援 OPTIONS 請求）
+      headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({ action, ...body }),
     });
     if (!res.ok) {

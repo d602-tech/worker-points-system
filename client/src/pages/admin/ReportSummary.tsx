@@ -82,7 +82,7 @@ export default function ReportSummary() {
       {/* Summary table */}
       <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden print:shadow-none print:border">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm report-table">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
                 {["工號", "姓名", "協助員類型", "區域", ...MONTHS, "合計"].map(h => (

@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
-  ChevronLeft, ChevronRight, Plus, Minus, TrendingUp, Send,
-  AlertCircle, Camera, Upload, X, Loader2, FileText,
+  ChevronLeft, ChevronRight, TrendingUp, Send,
+  AlertCircle, Camera, Upload, X, Loader2, FileText, CheckSquare, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -187,10 +187,13 @@ export default function MonthlyReport() {
   // ──────────────────────────────
   // 操作
   // ──────────────────────────────
-  const setQuantity = (itemId: string, qty: number) => {
+  // B1/B2 checkbox 開關（勾選 = 1次，取消 = 0次）
+  const toggleB1B2 = (itemId: string) => {
     setItems(prev =>
       prev.map(i =>
-        i.itemId === itemId && !isLocked(i) ? { ...i, quantity: Math.max(0, qty) } : i,
+        i.itemId === itemId && !isLocked(i)
+          ? { ...i, quantity: i.quantity > 0 ? 0 : 1 }
+          : i,
       ),
     );
   };
@@ -491,33 +494,37 @@ export default function MonthlyReport() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
-                        填報數量
-                      </span>
-                      <span className="text-xs font-bold text-slate-600">{item.unit}</span>
+                  <button
+                    disabled={locked}
+                    onClick={() => toggleB1B2(item.itemId)}
+                    className={cn(
+                      "w-full flex items-center gap-4 p-4 rounded-2xl border transition-all active:scale-[0.98]",
+                      item.quantity > 0
+                        ? "bg-blue-50 border-blue-200"
+                        : "bg-slate-50/50 border-slate-100",
+                      locked && "opacity-70 cursor-not-allowed",
+                    )}
+                  >
+                    {item.quantity > 0
+                      ? <CheckSquare className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                      : <Square className="w-6 h-6 text-slate-300 flex-shrink-0" />
+                    }
+                    <div className="flex-1 text-left">
+                      <div className={cn(
+                        "text-sm font-bold",
+                        item.quantity > 0 ? "text-blue-700" : "text-slate-400",
+                      )}>
+                        {item.quantity > 0 ? "已勾選" : "點擊勾選"}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">{item.unit}</div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <button
-                        disabled={locked}
-                        onClick={() => setQuantity(item.itemId, item.quantity - 1)}
-                        className="w-12 h-12 rounded-2xl bg-white shadow-sm border border-border flex items-center justify-center hover:bg-slate-50 active:scale-90 transition-all disabled:opacity-30"
-                      >
-                        <Minus className="w-5 h-5 text-slate-600" />
-                      </button>
-                      <span className="w-10 text-center text-xl font-black text-slate-900">
-                        {item.quantity}
-                      </span>
-                      <button
-                        disabled={locked}
-                        onClick={() => setQuantity(item.itemId, item.quantity + 1)}
-                        className="w-12 h-12 rounded-2xl bg-slate-900 shadow-md flex items-center justify-center hover:bg-black active:scale-90 transition-all disabled:opacity-30"
-                      >
-                        <Plus className="w-5 h-5 text-white" />
-                      </button>
+                    <div className={cn(
+                      "text-sm font-black",
+                      item.quantity > 0 ? "text-blue-700" : "text-slate-300",
+                    )}>
+                      {item.quantity > 0 ? `+${item.pointsPerUnit.toLocaleString()} 元` : "—"}
                     </div>
-                  </div>
+                  </button>
                 )}
 
                 {/* 小計 */}

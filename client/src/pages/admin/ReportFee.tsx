@@ -86,7 +86,7 @@ export default function ReportFee() {
 
       <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden print:shadow-none print:border">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm report-table">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
                 {["工號", "姓名", "協助員類型", "區域", "本月點數", "本月服務費(元)", "年度總點數", "年度服務費(元)"].map(h => (

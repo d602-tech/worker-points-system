@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, X, Upload, FileText,
-  Loader2, Camera, CheckCircle2, AlertCircle,
+  Loader2, Camera, CheckCircle2, AlertCircle, CalendarDays, LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -130,6 +130,8 @@ export default function CalendarOverview() {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRow>>({});
   const [loadingMonth, setLoadingMonth] = useState(false);
+  // 視圖切換：月曆 / 出勤計畫表
+  const [viewMode, setViewMode] = useState<"calendar" | "table">("calendar");
 
   // Drawer
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -319,22 +321,150 @@ export default function CalendarOverview() {
           </button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 px-4 pb-4">
-          {[
-            { label: "已通過", value: approvedCount, color: "text-emerald-700 bg-emerald-50" },
-            { label: "已送出", value: submittedCount, color: "text-blue-700 bg-blue-50" },
-            { label: "請假", value: leaveCount, color: "text-purple-700 bg-purple-50" },
-          ].map(({ label, value, color }) => (
-            <div key={label} className={cn("rounded-xl p-2.5 text-center", color)}>
-              <div className="text-xl font-bold">{value}</div>
-              <div className="text-xs font-medium">{label}</div>
-            </div>
-          ))}
+        {/* Stats + 申請請假按鈕 */}
+        <div className="px-4 pb-3 flex items-center gap-2">
+          <div className="flex-1 grid grid-cols-3 gap-2">
+            {[
+              { label: "已通過", value: approvedCount, color: "text-emerald-700 bg-emerald-50" },
+              { label: "已送出", value: submittedCount, color: "text-blue-700 bg-blue-50" },
+              { label: "請假", value: leaveCount, color: "text-purple-700 bg-purple-50" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className={cn("rounded-xl p-2.5 text-center", color)}>
+                <div className="text-xl font-bold">{value}</div>
+                <div className="text-xs font-medium">{label}</div>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              // 預設選今天，再開請假 modal
+              const todayStr = format(new Date(), "yyyy-MM-dd");
+              setSelectedDate(todayStr);
+              setShowLeaveModal(true);
+              setLeaveError(null);
+            }}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 active:scale-95 transition-all flex-shrink-0"
+          >
+            <span className="text-base leading-none">＋</span>
+            <span>請假</span>
+          </button>
+        </div>
+
+        {/* 視圖切換 */}
+        <div className="flex px-4 pb-3 gap-2">
+          <button
+            onClick={() => setViewMode("calendar")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border transition-all",
+              viewMode === "calendar"
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-white text-muted-foreground border-border hover:border-blue-300",
+            )}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />月曆
+          </button>
+          <button
+            onClick={() => setViewMode("table")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border transition-all",
+              viewMode === "table"
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-white text-muted-foreground border-border hover:border-blue-300",
+            )}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />出勤計畫表
+          </button>
         </div>
       </div>
 
+      {/* ── 出勤計畫表視圖 ── */}
+      {viewMode === "table" && (
+        <div className="px-4 py-4">
+          <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-border">
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-16">日期</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">星期</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">上午</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">下午</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">工時</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">狀態</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map(day => {
+                  const dateStr = format(day, "yyyy-MM-dd");
+                  const att = attendanceMap[dateStr];
+                  const status = deriveDayStatus(day, att);
+                  const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+                  const isTodayDate = isToday(day);
+                  return (
+                    <tr
+                      key={dateStr}
+                      onClick={() => !isWeekend && handleDateClick(dateStr)}
+                      className={cn(
+                        "border-b border-border/40 transition-colors",
+                        isWeekend ? "bg-slate-50/60 text-muted-foreground/50" : "hover:bg-muted/30 cursor-pointer",
+                        isTodayDate && "bg-blue-50/60",
+                      )}
+                    >
+                      <td className="px-3 py-2">
+                        <span className={cn("font-medium text-xs", isTodayDate && "text-blue-700 font-bold")}>
+                          {format(day, "d")}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-center text-xs text-muted-foreground">
+                        {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {att?.amStatus ? (
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">
+                            {att.amStatus}
+                          </span>
+                        ) : isWeekend ? (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {att?.pmStatus ? (
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">
+                            {att.pmStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-center text-xs text-muted-foreground">
+                        {att?.workHours ? `${att.workHours}h` : "—"}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {status !== "none" && status !== "holiday" ? (
+                          <span className={cn(
+                            "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
+                            STATUS_BADGE[status],
+                          )}>
+                            {STATUS_LABEL[status]}
+                          </span>
+                        ) : isWeekend ? (
+                          <span className="text-[10px] text-muted-foreground/40">休</span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground/40">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── Calendar Grid ── */}
+      {viewMode === "calendar" && (
       <div className="px-4 py-4">
         {/* Weekday headers */}
         <div className="grid grid-cols-7 mb-2">
@@ -396,6 +526,7 @@ export default function CalendarOverview() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Bottom Drawer ── */}
       {selectedDate && (

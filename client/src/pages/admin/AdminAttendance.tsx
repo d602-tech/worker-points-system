@@ -282,9 +282,38 @@ export default function AdminAttendance() {
             })}
           </div>
         </div>
-        <div className="px-4 py-3 border-t border-border/30 text-xs text-muted-foreground">
+        <div className="px-4 py-3 border-t border-border/30 text-xs text-muted-foreground print:hidden">
           狀態碼：／＝出勤 · 特N＝特休N小時 · 病N／事N等＝請假 · 代_姓名＝代理出勤 · 曠＝曠職
         </div>
+      </div>
+
+      {/* Print-only table（列印時替代月曆格式，顯示每日差勤清單） */}
+      <div className="hidden print:block mt-4">
+        <table className="w-full report-table text-sm">
+          <thead>
+            <tr>
+              {["日期", "星期", "上午狀態", "下午狀態"].map(h => (
+                <th key={h} className="px-3 py-2 text-center text-xs font-bold">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {days.filter(day => getDay(day) !== 0 && getDay(day) !== 6).map(day => {
+              const dateStr = format(day, "yyyy-MM-dd");
+              const rec = records[`${dateStr}_${selectedWorker}`];
+              return (
+                <tr key={dateStr}>
+                  <td className="px-3 py-1.5 text-center">{format(day, "M/d")}</td>
+                  <td className="px-3 py-1.5 text-center">
+                    {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
+                  </td>
+                  <td className="px-3 py-1.5 text-center">{rec?.amStatus || "—"}</td>
+                  <td className="px-3 py-1.5 text-center">{rec?.pmStatus || "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Edit Dialog */}

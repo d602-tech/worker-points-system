@@ -226,15 +226,23 @@
   /* ── 報表容器 ── */
   .space-y-6.print\:space-y-4 > * + * { margin-top: 0.5rem !important; }
 
-  /* ── 表格 ── */
+  /* ── 表格（參考計價.html：全黑粗框） ── */
   table { border-collapse: collapse !important; width: 100% !important; page-break-inside: auto; }
   thead { display: table-header-group; }
   tr    { page-break-inside: avoid; page-break-after: auto; }
-  th    { background-color: #f3f4f6 !important; font-weight: 700; border: 1px solid #374151 !important; padding: 4px 6px !important; font-size: 8pt; white-space: nowrap; }
-  td    { border: 1px solid #9ca3af !important; padding: 3px 6px !important; font-size: 8.5pt; }
+  th    { background-color: #f3f4f6 !important; font-weight: 700; border: 1px solid #000 !important; padding: 4px 6px !important; font-size: 8pt; white-space: nowrap; }
+  td    { border: 1px solid #000 !important; padding: 3px 6px !important; font-size: 8.5pt; }
 
   /* ── report-table 工具類 ── */
   .report-table th, .report-table td { border: 1px solid #000 !important; padding: 3px 6px !important; }
+
+  /* ── 工作類別底色（計價.html 規範，強制輸出） ── */
+  .cat-a { background-color: #ffffff !important; color: #000000 !important; }
+  .cat-b { background-color: #e5e5e5 !important; color: #000000 !important; }
+  .cat-c { background-color: #737373 !important; color: #ffffff !important; }
+  .cat-d { background-color: #000000 !important; color: #ffffff !important; }
+  .cat-s { background-color: #fef3c7 !important; color: #000000 !important; }
+  .cat-p { background-color: #fee2e2 !important; color: #991b1b !important; font-weight: bold !important; }
 
   /* ── 卡片/圓角容器 ── */
   .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
@@ -353,9 +361,9 @@
     box-shadow: none !important;
   }
 
-  /* 強制表格框線 */
+  /* 強制表格框線（計價.html 規範：全黑） */
   table, th, td {
-    border-color: #d1d5db !important;
+    border-color: #000 !important;
   }
 
   /* 保留狀態標籤底色（避免瀏覽器列印時去除背景色） */
