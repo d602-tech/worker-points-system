@@ -10,7 +10,7 @@ import { format, addMonths, subMonths } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
-import { gasPost, gasGet } from "@/lib/gasApi";
+import { gasPost, gasGet, getDriveFolderId } from "@/lib/gasApi";
 
 // ============================================================
 // 工具函式
@@ -75,7 +75,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  submitted: "已送出", approved: "已通過", rejected: "已退回", draft: "草稿",
+  submitted: "已送出", approved: "已通過", rejected: "已退回", draft: "待送出",
 };
 
 // ============================================================
@@ -270,6 +270,7 @@ export default function MonthlyReport() {
                 workerId: user.id,
                 date: yearMonth,
                 category,
+                driveFolderId: getDriveFolderId(),
               },
             );
             if (uploadRes.success && uploadRes.data) {

@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, X, Upload, FileText,
-  Loader2, Camera, CheckCircle2, AlertCircle, CalendarDays, LayoutGrid,
+  Loader2, Camera, CheckCircle2, AlertCircle, CalendarDays, LayoutGrid, Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
-  isToday, getDay, isBefore, startOfDay,
+  isToday, getDay, isBefore, startOfDay, addMonths,
 } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { toast } from "sonner";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import {
-  gasGet, gasPost, getFileIndexByDate,
+  gasGet, gasPost, getFileIndexByDate, getDriveFolderId,
   type AttendanceRow, type DailyPointRow, type FileIndexRow,
 } from "@/lib/gasApi";
+import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
 
 // ============================================================
 // 工具函式
@@ -106,6 +108,22 @@ const LEGEND: { status: DayStatus; label: string }[] = [
 ];
 
 // ============================================================
+// 2026 台灣國定假日（農曆假日以政府公告為準，每年更新）
+// ============================================================
+
+const TW_HOLIDAYS_2026: Set<string> = new Set([
+  "2026-01-01", "2026-01-02",                                        // 元旦
+  "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19",           // 農曆春節
+  "2026-02-20", "2026-02-21", "2026-02-22", "2026-02-23",           // 農曆春節
+  "2026-02-27", "2026-02-28",                                        // 和平紀念日
+  "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06",           // 兒童節+清明
+  "2026-05-01",                                                      // 勞動節
+  "2026-06-19", "2026-06-20", "2026-06-22",                         // 端午節
+  "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-05",           // 中秋節
+  "2026-10-09", "2026-10-10",                                        // 國慶日
+]);
+
+// ============================================================
 // 狀態推導
 // ============================================================
 
@@ -149,6 +167,13 @@ export default function CalendarOverview() {
   const leaveFileRef = useRef<HTMLInputElement>(null);
   const leaveCameraRef = useRef<HTMLInputElement>(null);
 
+  // 出勤計畫表：下個月差勤 + 計畫送出
+  const [nextMonthAttMap, setNextMonthAttMap] = useState<Record<string, AttendanceRow>>({});
+  const [planSubmitting, setPlanSubmitting] = useState(false);
+
+  // 今日點數摘要（月曆底部條）
+  const [todayPointsSummary, setTodayPointsSummary] = useState<{ submitted: number; total: number } | null>(null);
+
   // ──────────────────────────────
   // 載入月份差勤
   // ──────────────────────────────
@@ -173,6 +198,90 @@ export default function CalendarOverview() {
   useEffect(() => {
     loadAttendance(currentMonth);
   }, [loadAttendance, currentMonth]);
+
+  // 出勤計畫表視圖：同時載入下個月差勤
+  useEffect(() => {
+    if (viewMode !== "table" || !user?.id) return;
+    const nextMonth = addMonths(currentMonth, 1);
+    const yearMonth = format(nextMonth, "yyyy-MM");
+    gasGet<AttendanceRow[]>("getAttendance", { workerId: user.id, yearMonth })
+      .then(res => {
+        if (res.success && res.data) {
+          const map: Record<string, AttendanceRow> = {};
+          res.data.forEach(row => { map[row.date] = row; });
+          setNextMonthAttMap(map);
+        }
+      });
+  }, [viewMode, currentMonth, user?.id]);
+
+  // 月曆今日點數摘要
+  useEffect(() => {
+    if (!user?.id) return;
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const wt = user.workerType || "general";
+    const totalPossible = POINTS_CONFIG_SEED
+      .filter(i => i.workerType === wt && i.category === "A1")
+      .reduce((s, i) => s + i.pointsPerUnit, 0);
+    gasGet<DailyPointRow[]>("getDailyPoints", { workerId: user.id, date: todayStr })
+      .then(res => {
+        if (res.success && Array.isArray(res.data)) {
+          const submitted = (res.data as DailyPointRow[])
+            .filter(r => r.status === "submitted" || r.status === "approved")
+            .reduce((s, r) => s + (r.points || 0), 0);
+          setTodayPointsSummary({ submitted, total: totalPossible });
+        }
+      });
+  }, [user?.id, user?.workerType]);
+
+  // ──────────────────────────────
+  // 送出出勤計畫
+  // ──────────────────────────────
+  const handleSubmitPlan = useCallback(async () => {
+    if (!user) return;
+    setPlanSubmitting(true);
+    try {
+      const nextMonth = addMonths(currentMonth, 1);
+      const combined = { ...attendanceMap, ...nextMonthAttMap };
+      const planDays = eachDayOfInterval({
+        start: startOfMonth(currentMonth),
+        end: endOfMonth(nextMonth),
+      });
+      const records = planDays
+        .filter(day => {
+          const dateStr = format(day, "yyyy-MM-dd");
+          const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+          const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
+          return !isWeekend && !isHoliday && !combined[dateStr];
+        })
+        .map(day => ({
+          userId: user.id,
+          date: format(day, "yyyy-MM-dd"),
+          amStatus: "／",
+          pmStatus: "／",
+          source: "planned",
+          note: "出勤計畫",
+        }));
+      await gasPost("submitAttendancePlan", {
+        callerEmail: user.email,
+        workerId: user.id,
+        records,
+      });
+      toast.success("出勤計畫已送出，主辦部門將收到通知");
+      await loadAttendance(currentMonth);
+      const nmRes = await gasGet<AttendanceRow[]>("getAttendance", {
+        workerId: user.id, yearMonth: format(nextMonth, "yyyy-MM"),
+      });
+      if (nmRes.success && nmRes.data) {
+        const map: Record<string, AttendanceRow> = {};
+        nmRes.data.forEach(row => { map[row.date] = row; });
+        setNextMonthAttMap(map);
+      }
+    } catch (err) {
+      toast.error(`送出失敗：${String(err)}`);
+    } finally {
+      setPlanSubmitting(false);
+    }
+  }, [user, currentMonth, attendanceMap, nextMonthAttMap, loadAttendance]);
 
   // ──────────────────────────────
   // 點擊日期 → Drawer
@@ -219,6 +328,7 @@ export default function CalendarOverview() {
           workerId: user.id,
           date: selectedDate,
           category: "請假佐證",
+          driveFolderId: getDriveFolderId(),
         }
       );
       if (!uploadRes.success || !uploadRes.data) {
@@ -377,91 +487,128 @@ export default function CalendarOverview() {
         </div>
       </div>
 
-      {/* ── 出勤計畫表視圖 ── */}
-      {viewMode === "table" && (
-        <div className="px-4 py-4">
-          <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-border">
-                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-16">日期</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">星期</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">上午</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">下午</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">工時</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">狀態</th>
-                </tr>
-              </thead>
-              <tbody>
-                {days.map(day => {
-                  const dateStr = format(day, "yyyy-MM-dd");
-                  const att = attendanceMap[dateStr];
-                  const status = deriveDayStatus(day, att);
-                  const isWeekend = getDay(day) === 0 || getDay(day) === 6;
-                  const isTodayDate = isToday(day);
-                  return (
-                    <tr
-                      key={dateStr}
-                      onClick={() => !isWeekend && handleDateClick(dateStr)}
-                      className={cn(
-                        "border-b border-border/40 transition-colors",
-                        isWeekend ? "bg-slate-50/60 text-muted-foreground/50" : "hover:bg-muted/30 cursor-pointer",
-                        isTodayDate && "bg-blue-50/60",
-                      )}
-                    >
-                      <td className="px-3 py-2">
-                        <span className={cn("font-medium text-xs", isTodayDate && "text-blue-700 font-bold")}>
-                          {format(day, "d")}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 text-center text-xs text-muted-foreground">
-                        {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        {att?.amStatus ? (
-                          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">
-                            {att.amStatus}
-                          </span>
-                        ) : isWeekend ? (
-                          <span className="text-xs text-muted-foreground/40">—</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/40">—</span>
+      {/* ── 出勤計畫表視圖（當月 + 次月，含國定假日預設）── */}
+      {viewMode === "table" && (() => {
+        const nextMonth = addMonths(currentMonth, 1);
+        const combined = { ...attendanceMap, ...nextMonthAttMap };
+        const planDays = eachDayOfInterval({
+          start: startOfMonth(currentMonth),
+          end: endOfMonth(nextMonth),
+        });
+        return (
+          <div className="px-4 py-4 space-y-3 pb-36">
+            <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-border">
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-12">日</th>
+                    <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">週</th>
+                    <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">上午</th>
+                    <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">下午</th>
+                    <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">工時</th>
+                    <th className="px-2 py-2.5 text-center text-xs font-semibold text-muted-foreground">狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planDays.flatMap((day, idx) => {
+                    const dateStr = format(day, "yyyy-MM-dd");
+                    const prevDay = idx > 0 ? planDays[idx - 1] : null;
+                    const isNewMonth = !prevDay || day.getMonth() !== prevDay.getMonth();
+                    const att = combined[dateStr];
+                    const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+                    const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
+                    const isTodayDate = isToday(day);
+                    const status = deriveDayStatus(day, att);
+                    const isOff = isWeekend || isHoliday;
+
+                    const rows = [];
+                    if (isNewMonth) {
+                      rows.push(
+                        <tr key={`mh-${dateStr}`} className="bg-blue-600">
+                          <td colSpan={6} className="px-3 py-1.5 text-xs font-bold text-white">
+                            {format(day, "yyyy年M月", { locale: zhTW })}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    rows.push(
+                      <tr
+                        key={dateStr}
+                        onClick={() => !isOff && handleDateClick(dateStr)}
+                        className={cn(
+                          "border-b border-border/40 transition-colors",
+                          isOff ? "bg-slate-50/60 text-muted-foreground/50" : "hover:bg-muted/30 cursor-pointer",
+                          isTodayDate && "bg-blue-50/60",
                         )}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        {att?.pmStatus ? (
-                          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">
-                            {att.pmStatus}
+                      >
+                        <td className="px-3 py-2">
+                          <span className={cn("font-medium text-xs", isTodayDate && "text-blue-700 font-bold")}>
+                            {format(day, "d")}
+                            {isHoliday && !isWeekend && (
+                              <span className="ml-0.5 text-[9px] text-red-500">假</span>
+                            )}
                           </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/40">—</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-center text-xs text-muted-foreground">
-                        {att?.workHours ? `${att.workHours}h` : "—"}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        {status !== "none" && status !== "holiday" ? (
-                          <span className={cn(
-                            "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
-                            STATUS_BADGE[status],
-                          )}>
-                            {STATUS_LABEL[status]}
-                          </span>
-                        ) : isWeekend ? (
-                          <span className="text-[10px] text-muted-foreground/40">休</span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/40">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-2 py-2 text-center text-xs text-muted-foreground">
+                          {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {att?.amStatus ? (
+                            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.amStatus}</span>
+                          ) : isOff ? (
+                            <span className="text-xs text-muted-foreground/30">—</span>
+                          ) : (
+                            <span className="text-xs text-slate-300 font-medium">／</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {att?.pmStatus ? (
+                            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.pmStatus}</span>
+                          ) : isOff ? (
+                            <span className="text-xs text-muted-foreground/30">—</span>
+                          ) : (
+                            <span className="text-xs text-slate-300 font-medium">／</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center text-xs text-muted-foreground">
+                          {att?.workHours ? `${att.workHours}h` : isOff ? "—" : "8h"}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {isHoliday ? (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">國假</span>
+                          ) : isWeekend ? (
+                            <span className="text-[10px] text-muted-foreground/40">休</span>
+                          ) : status !== "none" ? (
+                            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", STATUS_BADGE[status])}>
+                              {STATUS_LABEL[status]}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-blue-400 font-medium">預設出勤</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                    return rows;
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 送出出勤計畫 */}
+            <button
+              onClick={handleSubmitPlan}
+              disabled={planSubmitting}
+              className="w-full py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-elegant"
+            >
+              {planSubmitting ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />送出中...</>
+              ) : (
+                <><Send className="w-4 h-4" />送出出勤計畫（通知主辦部門）</>
+              )}
+            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Calendar Grid ── */}
       {viewMode === "calendar" && (
@@ -506,6 +653,14 @@ export default function CalendarOverview() {
                 </span>
                 {status !== "none" && (
                   <span className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[status])} />
+                )}
+                {isTodayDate && todayPointsSummary && todayPointsSummary.total > 0 && (
+                  <div className="w-4/5 h-1 rounded-full overflow-hidden bg-slate-100 flex">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{ width: `${Math.min(100, (todayPointsSummary.submitted / todayPointsSummary.total) * 100)}%` }}
+                    />
+                  </div>
                 )}
               </button>
             );

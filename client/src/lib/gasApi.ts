@@ -327,11 +327,14 @@ export async function uploadFileToDrive(
   mimeType: string,
   workerId: string,
   date: string,
-  category = "A1_每日"
+  category = "A1_每日",
+  driveFolderId?: string
 ): Promise<GasResponse<{ driveFileId: string; fileName: string }>> {
-  return gasPost<{ driveFileId: string; fileName: string }>("uploadFileToDrive", {
+  const body: Record<string, unknown> = {
     callerEmail, base64Data, fileName, mimeType, workerId, date, category,
-  });
+  };
+  if (driveFolderId) body.driveFolderId = driveFolderId;
+  return gasPost<{ driveFileId: string; fileName: string }>("uploadFileToDrive", body);
 }
 
 /**
