@@ -45,20 +45,18 @@ interface TaskItem {
   submittedAt?: string;
 }
 
-type DayStatus = "none" | "draft" | "submitted" | "approved" | "rejected";
+type DayStatus = "none" | "submitted" | "approved" | "rejected";
 
 function getDayStatus(tasks: TaskItem[]): DayStatus {
   if (!tasks.length) return "none";
   if (tasks.every(t => t.status === "approved")) return "approved";
   if (tasks.some(t => t.status === "rejected")) return "rejected";
-  if (tasks.every(t => t.status === "submitted")) return "submitted";
-  if (tasks.some(t => t.completed)) return "draft";
+  if (tasks.some(t => t.status === "submitted" || t.status === "approved")) return "submitted";
   return "none";
 }
 
 const STATUS_CONFIG = {
   none:      { label: "未填報", color: "bg-red-50 text-red-600 border-red-200",         dot: "bg-red-500" },
-  draft:     { label: "待送出", color: "bg-slate-50 text-slate-600 border-slate-200",   dot: "bg-slate-400" },
   submitted: { label: "已送出", color: "bg-blue-50 text-blue-700 border-blue-200",      dot: "bg-blue-500" },
   approved:  { label: "已通過", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
   rejected:  { label: "已退回", color: "bg-red-50 text-red-700 border-red-200",         dot: "bg-red-500" },
@@ -167,8 +165,9 @@ export default function TodayTasks() {
   const dayStatus = getDayStatus(tasks);
   const isFinalized = tasks.every(t => t.status === "submitted" || t.status === "approved");
   const completedCount = tasks.filter(t => t.completed).length;
+  // 已上傳點數：以檔案有 driveFileId 為準（重整後仍可從 getFileIndexByDate 還原）
   const submittedPoints = tasks
-    .filter(t => t.status === "submitted" || t.status === "approved")
+    .filter(t => t.files.some(f => f.driveFileId) || t.status === "submitted" || t.status === "approved")
     .reduce((s, t) => s + t.points, 0);
   // 過去已完結日期 → 顯示唯讀詳情區塊
   const isPastFinalized =
@@ -343,7 +342,7 @@ export default function TodayTasks() {
             </div>
             <div className="h-8 w-px bg-border/60" />
             <div className="text-center">
-              <div className="text-[10px] font-bold text-muted-foreground leading-none">已送出</div>
+              <div className="text-[10px] font-bold text-muted-foreground leading-none">已上傳</div>
               <div className="text-sm font-bold text-emerald-700">
                 {submittedPoints > 0 ? `${submittedPoints.toLocaleString()}元` : "—"}
               </div>

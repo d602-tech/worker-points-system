@@ -35,14 +35,30 @@ async function blobToBase64(blob: Blob): Promise<string> {
 // ============================================================
 
 type DayStatus = "none" | "draft" | "submitted" | "approved" | "rejected" | "holiday" | "leave";
-type LeaveSession = "FULL" | "AM" | "PM";
 type LeaveType = "特休" | "病假" | "事假" | "婚假" | "喪假" | "公假";
 
 interface LeaveForm {
-  session: LeaveSession;
+  startHour: number;   // 8–16
+  endHour: number;     // 9–17
   leaveType: LeaveType;
   note: string;
   file: File | null;
+}
+
+// 可選起始時間（上班 08:00，不含午休起點 12:00 作為結束點）
+const START_HOUR_OPTIONS = [8, 9, 10, 11, 13, 14, 15, 16];
+// 可選結束時間（最晚 17:00，不含 12:00 前結束後立即接午後）
+const END_HOUR_OPTIONS   = [9, 10, 11, 12, 14, 15, 16, 17];
+
+function hourLabel(h: number): string {
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+/** 計算 AM / PM 各請幾小時（午休 12:00–13:00 不計入） */
+function computeLeaveHours(startH: number, endH: number) {
+  const amHours = Math.max(0, Math.min(endH, 12) - Math.max(startH, 8));
+  const pmHours = Math.max(0, Math.min(endH, 17) - Math.max(startH, 13));
+  return { amHours, pmHours, total: amHours + pmHours };
 }
 
 // ============================================================
@@ -160,7 +176,7 @@ export default function CalendarOverview() {
   // Leave modal
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [leaveForm, setLeaveForm] = useState<LeaveForm>({
-    session: "FULL", leaveType: "特休", note: "", file: null,
+    startHour: 8, endHour: 17, leaveType: "特休", note: "", file: null,
   });
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
@@ -214,23 +230,39 @@ export default function CalendarOverview() {
       });
   }, [viewMode, currentMonth, user?.id]);
 
-  // 月曆今日點數摘要
+  // 月曆今日點數摘要（以上傳檔案為準，重整後仍可還原）
   useEffect(() => {
     if (!user?.id) return;
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const wt = user.workerType || "general";
-    const totalPossible = POINTS_CONFIG_SEED
-      .filter(i => i.workerType === wt && i.category === "A1")
-      .reduce((s, i) => s + i.pointsPerUnit, 0);
-    gasGet<DailyPointRow[]>("getDailyPoints", { workerId: user.id, date: todayStr })
-      .then(res => {
-        if (res.success && Array.isArray(res.data)) {
-          const submitted = (res.data as DailyPointRow[])
-            .filter(r => r.status === "submitted" || r.status === "approved")
-            .reduce((s, r) => s + (r.points || 0), 0);
-          setTodayPointsSummary({ submitted, total: totalPossible });
-        }
-      });
+    const dailyItems = POINTS_CONFIG_SEED.filter(i => i.workerType === wt && i.category === "A1");
+    const totalPossible = dailyItems.reduce((s, i) => s + i.pointsPerUnit, 0);
+
+    Promise.all([
+      gasGet<DailyPointRow[]>("getDailyPoints", { workerId: user.id, date: todayStr }),
+      getFileIndexByDate(user.id, todayStr),
+    ]).then(([pointsRes, filesRes]) => {
+      // 已上傳檔案的 itemId 集合
+      const uploadedIds = new Set(
+        filesRes.success && Array.isArray(filesRes.data)
+          ? (filesRes.data as FileIndexRow[]).map(f => f.itemId)
+          : []
+      );
+      let submitted = 0;
+      if (pointsRes.success && Array.isArray(pointsRes.data)) {
+        (pointsRes.data as DailyPointRow[]).forEach(row => {
+          if (row.status === "submitted" || row.status === "approved" || uploadedIds.has(row.itemId)) {
+            submitted += row.points || 0;
+          }
+        });
+      } else {
+        // Fallback：直接以 file index 反推點數
+        dailyItems.forEach(item => {
+          if (uploadedIds.has(item.itemId)) submitted += item.pointsPerUnit;
+        });
+      }
+      setTodayPointsSummary({ submitted, total: totalPossible });
+    });
   }, [user?.id, user?.workerType]);
 
   // ──────────────────────────────
@@ -311,6 +343,8 @@ export default function CalendarOverview() {
   // ──────────────────────────────
   const handleLeaveSubmit = async () => {
     if (!leaveForm.file) { setLeaveError("請上傳假單佐證"); return; }
+    const { amHours, pmHours, total } = computeLeaveHours(leaveForm.startHour, leaveForm.endHour);
+    if (total === 0) { setLeaveError("請假時數為 0，請重新選擇時間範圍"); return; }
     if (!selectedDate || !user) return;
 
     setLeaveSubmitting(true);
@@ -346,12 +380,10 @@ export default function CalendarOverview() {
         },
       });
 
-      // 3. 計算 amStatus / pmStatus
+      // 3. 計算 amStatus / pmStatus（依時段小時數）
       const pfx = LEAVE_PREFIX[leaveForm.leaveType];
-      let amStatus = "／", pmStatus = "／";
-      if (leaveForm.session === "FULL") { amStatus = `${pfx}4`; pmStatus = `${pfx}4`; }
-      else if (leaveForm.session === "AM") { amStatus = `${pfx}4`; pmStatus = "／"; }
-      else { amStatus = "／"; pmStatus = `${pfx}4`; }
+      const amStatus = amHours > 0 ? `${pfx}${amHours}` : "／";
+      const pmStatus = pmHours > 0 ? `${pfx}${pmHours}` : "／";
 
       // 4. 寫入差勤
       await gasPost("upsertAttendance", {
@@ -368,7 +400,7 @@ export default function CalendarOverview() {
 
       // 6. 關閉 modal，重設表單
       setShowLeaveModal(false);
-      setLeaveForm({ session: "FULL", leaveType: "特休", note: "", file: null });
+      setLeaveForm({ startHour: 8, endHour: 17, leaveType: "特休", note: "", file: null });
     } catch (err) {
       setLeaveError(`操作失敗：${String(err)}`);
     } finally {
@@ -873,25 +905,62 @@ export default function CalendarOverview() {
 
           {/* Modal content */}
           <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
-            {/* 請假時段 */}
+            {/* 請假時段（起迄時間，最小單位 1 小時） */}
             <div>
-              <div className="text-sm font-medium text-foreground mb-2">請假時段</div>
-              <div className="grid grid-cols-3 gap-2">
-                {(["FULL", "AM", "PM"] as LeaveSession[]).map(s => (
-                  <button
-                    key={s}
-                    onClick={() => setLeaveForm(f => ({ ...f, session: s }))}
-                    className={cn(
-                      "py-2.5 rounded-xl text-sm font-medium border transition-all",
-                      leaveForm.session === s
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-white border-border text-foreground",
-                    )}
+              <div className="text-sm font-medium text-foreground mb-1">請假時間</div>
+              <div className="text-xs text-muted-foreground mb-3">午休 12:00–13:00 不計入時數</div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">開始時間</div>
+                  <select
+                    value={leaveForm.startHour}
+                    onChange={e => {
+                      const h = Number(e.target.value);
+                      setLeaveForm(f => ({
+                        ...f,
+                        startHour: h,
+                        endHour: f.endHour <= h ? Math.min(h + 1, 17) : f.endHour,
+                      }));
+                    }}
+                    className="w-full border border-border rounded-xl px-3 py-2.5 text-sm text-foreground bg-white focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    {s === "FULL" ? "全天" : s === "AM" ? "上午" : "下午"}
-                  </button>
-                ))}
+                    {START_HOUR_OPTIONS.map(h => (
+                      <option key={h} value={h}>{hourLabel(h)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-sm font-bold text-muted-foreground pt-5">～</div>
+                <div className="flex-1">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">結束時間</div>
+                  <select
+                    value={leaveForm.endHour}
+                    onChange={e => setLeaveForm(f => ({ ...f, endHour: Number(e.target.value) }))}
+                    className="w-full border border-border rounded-xl px-3 py-2.5 text-sm text-foreground bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    {END_HOUR_OPTIONS.filter(h => h > leaveForm.startHour).map(h => (
+                      <option key={h} value={h}>{hourLabel(h)}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+              {/* 時數預覽 */}
+              {(() => {
+                const { amHours, pmHours, total } = computeLeaveHours(leaveForm.startHour, leaveForm.endHour);
+                return total > 0 ? (
+                  <div className="mt-2.5 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 flex items-center justify-between">
+                    <span className="text-xs text-blue-700 font-medium">
+                      {amHours > 0 && `上午 ${amHours}h`}
+                      {amHours > 0 && pmHours > 0 && "　"}
+                      {pmHours > 0 && `下午 ${pmHours}h`}
+                    </span>
+                    <span className="text-xs font-bold text-blue-800">共 {total} 小時</span>
+                  </div>
+                ) : (
+                  <div className="mt-2.5 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                    <span className="text-xs text-red-600 font-medium">時間範圍無效（請調整起迄時間）</span>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 假別 */}

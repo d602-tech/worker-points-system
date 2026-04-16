@@ -17,11 +17,12 @@ const SHEET_ID_KEY = "sheet_id";
 const DRIVE_FOLDER_ID_KEY = "drive_folder_id";
 
 // ============================================================
-// 預設 GAS Web App URL
+// 預設設定值
 // 優先順序：localStorage（管理員可覆蓋）> Vite 環境變數（build time 注入）
-// 環境變數由 GitHub Secrets → deploy.yml → VITE_GAS_URL 傳入
+// 環境變數由 GitHub Secrets → deploy.yml → VITE_* 傳入
 // ============================================================
 const DEFAULT_GAS_URL = import.meta.env.VITE_GAS_URL as string || "";
+const DEFAULT_DRIVE_FOLDER_ID = import.meta.env.VITE_DRIVE_FOLDER_ID as string || "";
 
 // ============================================================
 // 設定管理
@@ -44,7 +45,7 @@ export function setSheetId(id: string): void {
 }
 
 export function getDriveFolderId(): string {
-  return localStorage.getItem(DRIVE_FOLDER_ID_KEY) || "";
+  return localStorage.getItem(DRIVE_FOLDER_ID_KEY) || DEFAULT_DRIVE_FOLDER_ID;
 }
 
 export function setDriveFolderId(id: string): void {
