@@ -109,6 +109,8 @@ export default function MonthlyReport() {
     touchStartX.current = null;
   };
 
+  const [dailyTotal, setDailyTotal] = useState(0);
+
   // 載入月報資料
   useEffect(() => {
     if (!user?.id) return;
@@ -116,67 +118,69 @@ export default function MonthlyReport() {
     const monthStr = format(currentMonth, "yyyy-MM");
 
     const initialItems: MonthlyItem[] = monthlyItemDefs.map(def => ({
-      itemId: def.itemId,
-      name: def.name,
-      category: def.category,
-      pointsPerUnit: def.pointsPerUnit,
-      unit: def.unit,
-      quantity: 0,
-      perfLevel: "",
-      status: "",
-      files: [],
+      itemId: def.itemId, name: def.name, category: def.category,
+      pointsPerUnit: def.pointsPerUnit, unit: def.unit, quantity: 0,
+      perfLevel: "", status: "", files: [],
     }));
 
-    gasGet("getMonthlyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr })
-      .then(res => {
-        if (res.success && Array.isArray(res.data)) {
-          const dbItems = res.data as Record<string, unknown>[];
-          setItems(initialItems.map(item => {
-            const found = dbItems.find(
-              r => r["項目編號"] === item.itemId || r["點數代碼"] === item.itemId,
-            );
-            if (found) {
-              const qty = Number(found["完成數量"] || found["數量"] || 1);
-              const note = String(found["備註"] || "");
-              const st = String(found["狀態"] || "submitted") as MonthlyItem["status"];
-              
-              let perf = String(found["績效等級"] || "") as MonthlyItem["perfLevel"];
-              if (item.category === "C" && !perf) {
-                if (note.includes("優")) perf = "優";
-                else if (note.includes("佳")) perf = "佳";
-                else if (note.includes("平")) perf = "平";
-              }
-              
-              const effectiveStatus = (st === "rejected" || st === "draft") ? "" : st;
-
-              const dbFileIdsStr = String(found["佐證檔案編號"] || "");
-              const loadedFiles = dbFileIdsStr.split(',').filter(Boolean).map((fid, idx) => ({
-                id: fid,
-                name: `已上傳檔案 ${idx + 1}`,
-                type: "application/octet-stream",
-                driveFileId: fid
-              }));
-
-              return { ...item, quantity: qty, perfLevel: perf, status: effectiveStatus, files: loadedFiles };
+    Promise.all([
+      gasGet("getMonthlyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr }),
+      gasGet("getDailyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr })
+    ]).then(([res, dailyRes]) => {
+      if (res.success && Array.isArray(res.data)) {
+        const dbItems = res.data as Record<string, unknown>[];
+        setItems(initialItems.map(item => {
+          const found = dbItems.find(
+            r => r["項目編號"] === item.itemId || r["點數代碼"] === item.itemId,
+          );
+          if (found) {
+            const qty = Number(found["完成數量"] || found["數量"] || 1);
+            const note = String(found["備註"] || "");
+            const st = String(found["狀態"] || "submitted") as MonthlyItem["status"];
+            let perf = String(found["績效等級"] || "") as MonthlyItem["perfLevel"];
+            if (item.category === "C" && !perf) {
+              if (note.includes("優")) perf = "優";
+              else if (note.includes("佳")) perf = "佳";
+              else if (note.includes("平")) perf = "平";
             }
-            return item;
-          }));
-        } else {
-          setItems(initialItems);
-        }
-      })
-      .finally(() => setIsLoading(false));
+            const effectiveStatus = (st === "rejected" || st === "draft") ? "" : st;
+            const dbFileIdsStr = String(found["佐證檔案編號"] || "");
+            const loadedFiles = dbFileIdsStr.split(',').filter(Boolean).map((fid, idx) => ({
+              id: fid, name: `已上傳檔案 ${idx + 1}`, type: "application/octet-stream", driveFileId: fid
+            }));
+            return { ...item, quantity: qty, perfLevel: perf, status: effectiveStatus, files: loadedFiles };
+          }
+          return item;
+        }));
+      } else {
+        setItems(initialItems);
+      }
+
+      if (dailyRes.success && Array.isArray(dailyRes.data)) {
+        const sum = (dailyRes.data as any[]).reduce((acc, curr) => acc + (Number(curr["點數"]) || 0), 0);
+        setDailyTotal(sum);
+      } else {
+        setDailyTotal(0);
+      }
+    }).finally(() => setIsLoading(false));
   }, [user?.id, currentMonth, monthlyItemDefs]);
 
   // ──────────────────────────────
   // 計算
   // ──────────────────────────────
-  const totalPoints = items.reduce((sum, item) => {
+  const monthlyRegTotal = items.reduce((sum, item) => {
+    if (item.category === "C") return sum;
+    return sum + item.pointsPerUnit * item.quantity;
+  }, 0);
+
+  const perfTotal = items.reduce((sum, item) => {
     if (item.category === "C" && item.perfLevel) {
       return sum + (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0);
     }
-    return sum + item.pointsPerUnit * item.quantity;
+    return sum;
   }, 0);
+
+  const totalPoints = dailyTotal + monthlyRegTotal + perfTotal;
 
   const isLocked = (item: MonthlyItem) =>
     item.status === "submitted" || item.status === "approved";
@@ -397,12 +401,19 @@ export default function MonthlyReport() {
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16 blur-2xl" />
             <div className="flex flex-col">
               <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">
-                本月預計累計
+                本月累計（含每日及月報）
               </span>
               <span className="text-3xl font-black text-white">
                 {totalPoints.toLocaleString()}
                 <span className="text-sm font-bold ml-1 text-slate-400">元</span>
               </span>
+              <div className="text-[11px] font-medium text-white/70 mt-1.5 flex items-center gap-1.5 flex-wrap">
+                <span>每日: {dailyTotal.toLocaleString()}</span>
+                <span>+</span>
+                <span>例行月報: {monthlyRegTotal.toLocaleString()}</span>
+                <span>+</span>
+                <span>績效: {perfTotal.toLocaleString()}</span>
+              </div>
             </div>
             <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-md">
               <TrendingUp className="w-6 h-6 text-blue-400" />

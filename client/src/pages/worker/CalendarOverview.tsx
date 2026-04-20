@@ -373,8 +373,8 @@ export default function CalendarOverview() {
         .map(day => ({
           userId: user.id,
           date: format(day, "yyyy-MM-dd"),
-          amStatus: "／",
-          pmStatus: "／",
+          amStatus: "出勤",
+          pmStatus: "出勤",
           source: "planned",
           note: "出勤計畫",
         }));
@@ -596,7 +596,7 @@ export default function CalendarOverview() {
                 : "bg-white text-muted-foreground border-border hover:border-blue-300",
             )}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />月曆
+            <LayoutGrid className="w-3.5 h-3.5" />月曆視圖
           </button>
           <button
             onClick={() => setViewMode("table")}
@@ -607,8 +607,14 @@ export default function CalendarOverview() {
                 : "bg-white text-muted-foreground border-border hover:border-blue-300",
             )}
           >
-            <CalendarDays className="w-3.5 h-3.5" />出勤計畫表
+            <CalendarDays className="w-3.5 h-3.5" />列表視圖
           </button>
+        </div>
+
+        <div className="px-4 pb-4">
+          <div className="px-4 py-2 bg-amber-50 rounded-xl border border-amber-200 text-center text-[13px] font-bold text-amber-600 shadow-sm">
+            ⭐ 提醒：請於每月 26 號前填寫下個月的排程
+          </div>
         </div>
       </div>
 
@@ -718,7 +724,7 @@ export default function CalendarOverview() {
                         <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                           {!att?.isFinalized && viewMode === "table" ? (
                             <select
-                              value={att?.amStatus || ""}
+                              value={att?.amStatus || (isOff ? "" : "出勤")}
                               onChange={e => updateDailyStatus(dateStr, "am", e.target.value)}
                               className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
                             >
@@ -736,13 +742,13 @@ export default function CalendarOverview() {
                           ) : isOff ? (
                             <span className="text-xs text-muted-foreground/30">—</span>
                           ) : (
-                            <span className="text-xs text-slate-300 font-medium">／</span>
+                            <span className="text-xs text-blue-500 font-medium">出勤</span>
                           )}
                         </td>
                         <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                           {!att?.isFinalized && viewMode === "table" ? (
                             <select
-                              value={att?.pmStatus || ""}
+                              value={att?.pmStatus || (isOff ? "" : "出勤")}
                               onChange={e => updateDailyStatus(dateStr, "pm", e.target.value)}
                               className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
                             >
@@ -760,7 +766,7 @@ export default function CalendarOverview() {
                           ) : isOff ? (
                             <span className="text-xs text-muted-foreground/30">—</span>
                           ) : (
-                            <span className="text-xs text-slate-300 font-medium">／</span>
+                            <span className="text-xs text-blue-500 font-medium">出勤</span>
                           )}
                         </td>
                         <td className="px-2 py-2 text-center text-xs text-muted-foreground">
