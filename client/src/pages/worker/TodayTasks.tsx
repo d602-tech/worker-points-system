@@ -288,15 +288,15 @@ export default function TodayTasks() {
 
       // 步驟 3：送出點數紀錄
       await gasPost("saveDailyPointsBatch", {
+        callerEmail: user?.email || "",
         workerId: user?.id || "",
         workerName: user?.name || "",
         date: dateStr,
         items: completedTasks.map(task => ({
-          pointCode: task.itemId,
-          category: "A1",
-          taskName: task.name,
+          itemId: task.itemId,
           points: task.points,
-          fileCount: task.files.length,
+          quantity: 1,
+          fileIds: task.files.map(f => f.driveFileId).filter(Boolean),
           note: task.note,
         })),
       });

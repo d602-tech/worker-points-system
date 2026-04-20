@@ -326,6 +326,7 @@ export default function MonthlyReport() {
       // 2. 送出點數紀錄
       for (const item of toSubmit) {
         await gasPost("saveMonthlyPoints", {
+          callerEmail: user.email,
           record: {
             userId: user.id,
             yearMonth: yearMonth,
