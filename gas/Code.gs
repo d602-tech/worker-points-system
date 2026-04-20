@@ -49,14 +49,14 @@ const COLUMNS = {
   DAILY_POINTS: {
     RECORD_ID: '紀錄編號', USER_ID: '人員編號', DATE: '日期',
     ITEM_ID: '項目編號', QUANTITY: '完成數量', POINTS: '點數',
-    FILE_IDS: '佐證檔案編號', STATUS: '狀態',
+    FILE_IDS: '佐證檔案編號', STATUS: '狀態', NOTE: '備註',
     UPLOADED_AT: '上傳時間', UPDATED_AT: '最後更新時間',
   },
   MONTHLY_POINTS: {
     RECORD_ID: '紀錄編號', USER_ID: '人員編號', YEAR_MONTH: '年月',
     ITEM_ID: '項目編號', QUANTITY: '完成數量', POINTS: '點數',
     FILE_IDS: '佐證檔案編號', PERF_LEVEL: '績效等級',
-    STATUS: '狀態', UPLOADED_AT: '上傳時間', UPDATED_AT: '最後更新時間',
+    STATUS: '狀態', NOTE: '備註', UPLOADED_AT: '上傳時間', UPDATED_AT: '最後更新時間',
   },
   REVIEW_LOG: {
     LOG_ID: '紀錄編號', USER_ID: '人員編號', YEAR_MONTH: '年月',
@@ -160,7 +160,7 @@ function doGet(e) {
         break;
       case 'getFileIndex':
         data = getFileIndex(e.parameter.callerEmail, e.parameter.workerId,
-                            e.parameter.date, e.parameter.itemId);
+                            e.parameter.date, e.parameter.itemId, e.parameter.yearMonth);
         break;
       case 'getReviewList':
         data = getReviewList(e.parameter.callerEmail, e.parameter.status,
@@ -971,6 +971,7 @@ function saveDailyPoints(callerEmail, record) {
       record[COLUMNS.DAILY_POINTS.POINTS]    || record.points    || 0,
       record[COLUMNS.DAILY_POINTS.FILE_IDS]  || record.fileIds   || '',
       record[COLUMNS.DAILY_POINTS.STATUS]    || record.status    || 'draft',
+      record[COLUMNS.DAILY_POINTS.NOTE]      || record.note || (targetRow > 0 ? data[targetRow - 1][headers.indexOf(COLUMNS.DAILY_POINTS.NOTE)] : ''),
       (targetRow > 0)
         ? data[targetRow - 1][headers.indexOf(COLUMNS.DAILY_POINTS.UPLOADED_AT)]
         : now,
@@ -1033,6 +1034,7 @@ function saveDailyPointsBatch(callerEmail, workerId, date, items) {
     rec[COLUMNS.DAILY_POINTS.POINTS]   = pts;
     rec[COLUMNS.DAILY_POINTS.FILE_IDS] = (item.fileIds || []).join(',');
     rec[COLUMNS.DAILY_POINTS.STATUS]   = 'submitted';
+    if (item.note) rec[COLUMNS.DAILY_POINTS.NOTE] = item.note;
     var result = saveDailyPoints(callerEmail, rec);
     if (result.success) saved++;
     else errors.push(item.itemId + ': ' + result.error);
@@ -1129,6 +1131,7 @@ function saveMonthlyPoints(callerEmail, record) {
       record[COLUMNS.MONTHLY_POINTS.FILE_IDS]    || record.fileIds    || '',
       record[COLUMNS.MONTHLY_POINTS.PERF_LEVEL]  || record.perfLevel  || '',
       record[COLUMNS.MONTHLY_POINTS.STATUS]      || record.status     || 'draft',
+      record[COLUMNS.MONTHLY_POINTS.NOTE]        || record.note       || (targetRow > 0 ? data[targetRow - 1][headers.indexOf(COLUMNS.MONTHLY_POINTS.NOTE)] : ''),
       (targetRow > 0)
         ? data[targetRow - 1][headers.indexOf(COLUMNS.MONTHLY_POINTS.UPLOADED_AT)]
         : now,
@@ -1617,7 +1620,7 @@ function saveFileIndex(callerEmail, record) {
   return { success: true, data: { fileId: fileId } };
 }
 
-function getFileIndex(callerEmail, workerId, date, itemId) {
+function getFileIndex(callerEmail, workerId, date, itemId, yearMonth) {
   var perm = checkPermission(callerEmail, ['admin','deptMgr','billing','worker']);
   if (!perm.allowed) return { success: false, error: perm.reason };
 
@@ -1627,7 +1630,14 @@ function getFileIndex(callerEmail, workerId, date, itemId) {
     var uid = r[COLUMNS.FILES_INDEX.USER_ID];
     if (perm.callerRole === 'worker' && uid !== perm.callerUserId) return false;
     if (workerId && uid !== workerId) return false;
-    if (date   && String(r[COLUMNS.FILES_INDEX.DATE])    !== String(date))   return false;
+    
+    var sheetDate = String(r[COLUMNS.FILES_INDEX.DATE]);
+    if (date && sheetDate !== String(date)) return false;
+    if (yearMonth) {
+       var ym = yearMonth.replace('/', '-').substring(0, 7);
+       if (!sheetDate.startsWith(ym)) return false;
+    }
+    
     if (itemId && String(r[COLUMNS.FILES_INDEX.ITEM_ID]) !== String(itemId)) return false;
     return true;
   });

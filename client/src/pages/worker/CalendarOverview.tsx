@@ -230,41 +230,58 @@ export default function CalendarOverview() {
       });
   }, [viewMode, currentMonth, user?.id]);
 
-  // 月曆今日點數摘要（以上傳檔案為準，重整後仍可還原）
+  const [dailyPointsMap, setDailyPointsMap] = useState<Record<string, number>>({});
+  const [dailyUploadsMap, setDailyUploadsMap] = useState<Record<string, boolean>>({});
+
+  // 月曆今日點數摘要與整個月積分分布
   useEffect(() => {
     if (!user?.id) return;
     const todayStr = format(new Date(), "yyyy-MM-dd");
+    const monthStr = format(currentMonth, "yyyy-MM");
     const wt = user.workerType || "general";
     const dailyItems = POINTS_CONFIG_SEED.filter(i => i.workerType === wt && i.category === "A1");
     const totalPossible = dailyItems.reduce((s, i) => s + i.pointsPerUnit, 0);
 
     Promise.all([
-      gasGet<DailyPointRow[]>("getDailyPoints", { callerEmail: user.email, workerId: user.id, date: todayStr }),
-      getFileIndexByDate(user.email, user.id, todayStr),
+      gasGet<DailyPointRow[]>("getDailyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr }),
+      gasGet<FileIndexRow[]>("getFileIndex", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr }),
     ]).then(([pointsRes, filesRes]) => {
-      // 已上傳檔案的 itemId 集合
-      const uploadedIds = new Set(
-        filesRes.success && Array.isArray(filesRes.data)
-          ? (filesRes.data as FileIndexRow[]).map(f => f.itemId)
-          : []
-      );
-      let submitted = 0;
+      const pMap: Record<string, number> = {};
+      const uMap: Record<string, boolean> = {};
+
       if (pointsRes.success && Array.isArray(pointsRes.data)) {
-        (pointsRes.data as DailyPointRow[]).forEach(row => {
-          if (row.status === "submitted" || row.status === "approved" || uploadedIds.has(row.itemId)) {
-            submitted += row.points || 0;
+        pointsRes.data.forEach(row => {
+          let pts = 0;
+          for (const key in row) {
+            if (key.trim() === "點數" || key.trim().toLowerCase() === "points") {
+              pts += Number((row as Record<string, unknown>)[key]) || 0;
+            }
+          }
+          const d = (row as Record<string, unknown>)["日期"] || row.date;
+          if (d) {
+            const dStr = String(d).substring(0, 10);
+            pMap[dStr] = (pMap[dStr] || 0) + pts;
           }
         });
-      } else {
-        // Fallback：直接以 file index 反推點數
-        dailyItems.forEach(item => {
-          if (uploadedIds.has(item.itemId)) submitted += item.pointsPerUnit;
+      }
+
+      if (filesRes.success && Array.isArray(filesRes.data)) {
+        filesRes.data.forEach(row => {
+          const d = (row as Record<string, unknown>)["日期"] || row.date;
+          if (d) {
+            const dStr = String(d).substring(0, 10);
+            uMap[dStr] = true;
+          }
         });
       }
+
+      setDailyPointsMap(pMap);
+      setDailyUploadsMap(uMap);
+
+      const submitted = pMap[todayStr] || 0;
       setTodayPointsSummary({ submitted, total: totalPossible });
     });
-  }, [user?.id, user?.workerType]);
-
+  }, [user?.id, user?.workerType, currentMonth]);
   const updateDailyStatus = async (dateStr: string, period: "am" | "pm" | "workHours", val: string) => {
     if (!user?.id) return;
     const isNextMonth = dateStr.startsWith(format(addMonths(currentMonth, 1), "yyyy-MM"));
@@ -643,8 +660,8 @@ export default function CalendarOverview() {
                 if (wh > 0) currentDays++;
             });
             if (currentDays > targetDays) {
-                errorMsg = `請先安排其他休假再排班（${format(month, "M月")}應出勤 ${targetDays} 天，目前排了 ${currentDays} 天）`;
-                break;
+                errorMsg = `警告：${format(month, "M月")}排班天數 (${currentDays}天) 超過該月預設上班日 (${targetDays}天)。確定送出嗎？`;
+                // 不再 break，允許繼續，僅作為警告提示
             }
         }
         
@@ -816,7 +833,7 @@ export default function CalendarOverview() {
             {/* 送出出勤計畫 */}
             <button
               onClick={handleSubmitPlan}
-              disabled={planSubmitting || !!errorMsg}
+              disabled={planSubmitting}
               className="w-full py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-elegant disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
             >
               {planSubmitting ? (
@@ -848,6 +865,12 @@ export default function CalendarOverview() {
             const isSelected = selectedDate === dateStr;
             const isTodayDate = isToday(day);
             const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+            const isPastDay = isBefore(startOfDay(day), startOfDay(new Date()));
+            const att = attendanceMap[dateStr];
+            
+            const dayPts = dailyPointsMap[dateStr] || 0;
+            const dayHasUpload = dailyUploadsMap[dateStr];
+            const isMissingUpload = isPastDay && att?.amStatus === "出勤" && !dayHasUpload && dayPts === 0;
 
             return (
               <button
@@ -873,6 +896,8 @@ export default function CalendarOverview() {
                 {status !== "none" && (
                   <span className={cn("w-1.5 h-1.5 rounded-full", STATUS_DOT[status])} />
                 )}
+                {isMissingUpload && <span className="text-[9px] text-red-500 font-bold leading-none mt-0.5 tracking-tighter">未上傳</span>}
+                {dayPts > 0 && <span className="text-[10px] text-blue-600 font-bold leading-none mt-0.5">+{dayPts.toLocaleString()}</span>}
                 {isTodayDate && todayPointsSummary && todayPointsSummary.total > 0 && (
                   <div className="w-4/5 h-1 rounded-full overflow-hidden bg-slate-100 flex">
                     <div

@@ -82,6 +82,7 @@ export default function TodayTasks() {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [resubmitNoteMap, setResubmitNoteMap] = useState<Record<string, string>>({});
   const [lastSubmittedCount, setLastSubmittedCount] = useState(0);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -313,6 +314,89 @@ export default function TodayTasks() {
     }
   };
 
+  const handleResubmitTask = async (task: TaskItem) => {
+    const reason = resubmitNoteMap[task.itemId];
+    if (!reason || !reason.trim()) {
+      toast.error("請填寫修改原因！");
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,.pdf,application/pdf";
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const fileList = (e.target as HTMLInputElement).files;
+      if (!fileList || fileList.length === 0) return;
+
+      setIsSubmitting(true);
+      try {
+        const dateStr = format(currentDate, "yyyy-MM-dd");
+        const newFileIds: string[] = [];
+
+        // 上傳新檔案
+        for (const f of Array.from(fileList)) {
+          const base64Data = await blobToBase64(f);
+          const fileExt = f.name.split('.').pop() || 'jpg';
+          const taskNameStr = task.name || task.itemId;
+          const userNameStr = user?.name || "未知";
+          const formattedFileName = `${format(currentDate, "yyyyMMdd")}_${taskNameStr}_${userNameStr}_覆寫.${fileExt}`;
+
+          const uploadRes = await gasPost("uploadFileToDrive", {
+            callerEmail: user?.email || "",
+            base64Data,
+            fileName: formattedFileName,
+            mimeType: f.type,
+            workerId: user?.id || "",
+            date: dateStr,
+            category: "A1_每日",
+            driveFolderId: getDriveFolderId(),
+          });
+
+          if (uploadRes.success && uploadRes.data) {
+            const drvId = (uploadRes.data as any).driveFileId;
+            newFileIds.push(drvId);
+            // 寫索引
+            await gasPost("saveFileIndex", {
+              callerEmail: user?.email || "",
+              record: {
+                userId: user?.id || "", date: dateStr, itemId: task.itemId,
+                fileName: formattedFileName, mimeType: f.type, driveFileId: drvId,
+              }
+            });
+          }
+        }
+
+        // 重新送出該列
+        const ptsRes = await gasPost("saveDailyPointsBatch", {
+          callerEmail: user?.email || "",
+          workerId: user?.id || "",
+          date: dateStr,
+          items: [{
+            itemId: task.itemId,
+            quantity: 1,
+            points: task.points,
+            fileIds: newFileIds,
+            note: `[修改原因: ${reason}]`,
+          }],
+        });
+
+        if (ptsRes.success) {
+          toast.success("重新上傳與覆寫成功！");
+          setResubmitNoteMap(prev => ({ ...prev, [task.itemId]: "" }));
+          setTimeout(() => window.location.reload(), 1000); // Trigger reload to fetch new items securely
+        } else {
+          toast.error("覆寫記錄失敗：" + ptsRes.error);
+        }
+      } catch (err: any) {
+        toast.error("覆寫失敗：" + err.message);
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+    input.click();
+  };
+
   return (
     <div className="flex flex-col min-h-full bg-background select-none" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* Header */}
@@ -502,11 +586,32 @@ export default function TodayTasks() {
                       ))}
                     </div>
                   ) : (
-                    <div className="bg-emerald-50/50 p-3 rounded-2xl flex items-center gap-2 border border-emerald-100">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span className="text-xs font-bold text-emerald-700">
-                        資料已於 {task.submittedAt ? format(parseISO(String(task.submittedAt)), "HH:mm") : "今日"} 完成上傳且不可修改
-                      </span>
+                    <div className="space-y-3">
+                      <div className="bg-emerald-50/50 p-3 rounded-2xl flex items-center gap-2 border border-emerald-100">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span className="text-xs font-bold text-emerald-700">
+                          資料已於 {task.submittedAt ? format(parseISO(String(task.submittedAt)), "HH:mm") : "今日"} 完成上傳。
+                        </span>
+                      </div>
+                      
+                      <div className="bg-orange-50/70 border border-orange-200/60 p-4 rounded-2xl space-y-3">
+                         <div className="flex items-center gap-1.5 text-orange-800 text-xs font-bold mb-1">
+                           <AlertCircle className="w-4 h-4" />重新上傳佐證 (覆寫舊檔)
+                         </div>
+                         <textarea
+                           placeholder="請填寫修改原因 (必填)"
+                           className="w-full text-xs p-3 rounded-xl border border-orange-200 bg-white/60 focus:ring-orange-500 min-h-[60px]"
+                           onChange={e => setResubmitNoteMap(prev => ({...prev, [task.itemId]: e.target.value}))}
+                           value={resubmitNoteMap[task.itemId] || ""}
+                         />
+                         <Button
+                           disabled={!resubmitNoteMap[task.itemId]?.trim() || isSubmitting}
+                           onClick={() => handleResubmitTask(task)}
+                           className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl h-10 shadow-sm"
+                         >
+                            <Upload className="w-4 h-4 mr-1.5" />選取新檔案並覆寫
+                         </Button>
+                      </div>
                     </div>
                   )}
 

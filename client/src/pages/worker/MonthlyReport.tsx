@@ -91,6 +91,7 @@ export default function MonthlyReport() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [resubmitNoteMap, setResubmitNoteMap] = useState<Record<string, string>>({});
 
   // File input refs per item
   const cameraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -157,7 +158,15 @@ export default function MonthlyReport() {
       }
 
       if (dailyRes.success && Array.isArray(dailyRes.data)) {
-        const sum = (dailyRes.data as any[]).reduce((acc, curr) => acc + (Number(curr["點數"]) || 0), 0);
+        const sum = (dailyRes.data as any[]).reduce((acc, curr) => {
+          let pt = 0;
+          for (const key in curr) {
+            if (key.trim() === "點數" || key.trim().toLowerCase() === "points") {
+              pt += Number((curr as Record<string, unknown>)[key]) || 0;
+            }
+          }
+          return acc + pt;
+        }, 0);
         setDailyTotal(sum);
       } else {
         setDailyTotal(0);
@@ -361,6 +370,96 @@ export default function MonthlyReport() {
       setIsSubmitting(false);
       setUploadProgress(null);
     }
+  };
+
+  const handleResubmitMonthlyItem = async (item: MonthlyItem) => {
+    const reason = resubmitNoteMap[item.itemId];
+    if (!reason || !reason.trim()) {
+      toast.error("請填寫修改原因！");
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,.pdf,application/pdf";
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const fileList = (e.target as HTMLInputElement).files;
+      if (!fileList || fileList.length === 0) return;
+
+      setIsSubmitting(true);
+      try {
+        const dateStr = format(new Date(), "yyyy-MM-dd");
+        const monthStr = format(currentMonth, "yyyy-MM");
+        const newFileIds: string[] = [];
+
+        // 上傳新檔案
+        for (const f of Array.from(fileList)) {
+          const base64Data = await blobToBase64(f);
+          const fileExt = f.name.split('.').pop() || 'jpg';
+          const taskNameStr = item.name || item.itemId;
+          const userNameStr = user?.name || "未知";
+          const formattedFileName = `${format(currentMonth, "yyyyMM")}_${taskNameStr}_${userNameStr}_覆寫.${fileExt}`;
+
+          const uploadRes = await gasPost("uploadFileToDrive", {
+            callerEmail: user?.email || "",
+            base64Data,
+            fileName: formattedFileName,
+            mimeType: f.type,
+            workerId: user?.id || "",
+            date: monthStr, // index key
+            category: item.category === "B1" ? "B1_月報" : "B2_月報",
+            driveFolderId: getDriveFolderId(),
+          });
+
+          if (uploadRes.success && uploadRes.data) {
+            const drvId = (uploadRes.data as any).driveFileId;
+            newFileIds.push(drvId);
+            // 寫入索引
+            await gasPost("saveFileIndex", {
+              callerEmail: user?.email || "",
+              record: {
+                userId: user?.id || "", 
+                date: monthStr,
+                itemId: item.itemId,
+                fileName: formattedFileName, 
+                mimeType: f.type, 
+                driveFileId: drvId,
+              }
+            });
+          }
+        }
+
+        // 重新送出該列
+        const ptsRes = await gasPost("saveMonthlyPoints", {
+          callerEmail: user?.email || "",
+          record: {
+            userId: user?.id || "",
+            yearMonth: monthStr,
+            itemId: item.itemId,
+            quantity: item.quantity || 1,
+            points: item.category === "C" ? (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0) : (item.pointsPerUnit * (item.quantity || 1)),
+            perfLevel: item.perfLevel || "",
+            fileIds: newFileIds.join(","),
+            status: "submitted",
+            note: `[修改原因: ${reason}]`,
+          }
+        });
+
+        if (ptsRes.success) {
+          toast.success("佐證已重新覆寫完成！");
+          setResubmitNoteMap(prev => ({ ...prev, [item.itemId]: "" }));
+          setTimeout(() => window.location.reload(), 1000);
+        } else {
+          toast.error("覆寫記錄失敗：" + ptsRes.error);
+        }
+      } catch (err: any) {
+        toast.error("覆寫失敗：" + err.message);
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+    input.click();
   };
 
   // ──────────────────────────────
@@ -623,8 +722,34 @@ export default function MonthlyReport() {
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
 
-                    {/* 隱藏的 input */}
+                {/* 修改原因覆寫區塊 (Locked B1/B2/C) */}
+                {(item.category === "B1" || item.category === "B2") && locked && (
+                  <div className="mt-4 pt-4 border-t border-dashed border-border/40">
+                      <div className="bg-orange-50/70 border border-orange-200/60 p-4 rounded-2xl space-y-3">
+                         <div className="flex items-center gap-1.5 text-orange-800 text-xs font-bold mb-1">
+                           <AlertCircle className="w-4 h-4" />重新上傳佐證 (覆寫舊檔)
+                         </div>
+                         <textarea
+                           placeholder="請填寫修改原因 (必填)"
+                           className="w-full text-xs p-3 rounded-xl border border-orange-200 bg-white/60 focus:ring-orange-500 min-h-[60px]"
+                           onChange={e => setResubmitNoteMap(prev => ({...prev, [item.itemId]: e.target.value}))}
+                           value={resubmitNoteMap[item.itemId] || ""}
+                         />
+                         <button
+                           disabled={!resubmitNoteMap[item.itemId]?.trim() || isSubmitting}
+                           onClick={() => handleResubmitMonthlyItem(item)}
+                           className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 transition-all text-white font-bold text-xs rounded-xl h-10 shadow-sm flex items-center justify-center disabled:opacity-50"
+                         >
+                            <Upload className="w-4 h-4 mr-1.5" />選取新檔案並覆寫
+                         </button>
+                      </div>
+                  </div>
+                )}
+
+                {/* 隱藏的 input */}
                     <input
                       ref={el => { cameraRefs.current[item.itemId] = el; }}
                       type="file" accept="image/*" capture="environment" className="hidden"
