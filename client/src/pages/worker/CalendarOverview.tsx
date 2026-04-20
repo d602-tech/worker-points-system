@@ -199,7 +199,7 @@ export default function CalendarOverview() {
     setLoadingMonth(true);
     try {
       const res = await gasGet<AttendanceRow[]>("getAttendance", {
-        workerId: user.id, yearMonth,
+        callerEmail: user.email, workerId: user.id, yearMonth,
       });
       if (res.success && res.data) {
         const map: Record<string, AttendanceRow> = {};
@@ -220,7 +220,7 @@ export default function CalendarOverview() {
     if (viewMode !== "table" || !user?.id) return;
     const nextMonth = addMonths(currentMonth, 1);
     const yearMonth = format(nextMonth, "yyyy-MM");
-    gasGet<AttendanceRow[]>("getAttendance", { workerId: user.id, yearMonth })
+    gasGet<AttendanceRow[]>("getAttendance", { callerEmail: user.email, workerId: user.id, yearMonth })
       .then(res => {
         if (res.success && res.data) {
           const map: Record<string, AttendanceRow> = {};
@@ -239,8 +239,8 @@ export default function CalendarOverview() {
     const totalPossible = dailyItems.reduce((s, i) => s + i.pointsPerUnit, 0);
 
     Promise.all([
-      gasGet<DailyPointRow[]>("getDailyPoints", { workerId: user.id, date: todayStr }),
-      getFileIndexByDate(user.id, todayStr),
+      gasGet<DailyPointRow[]>("getDailyPoints", { callerEmail: user.email, workerId: user.id, date: todayStr }),
+      getFileIndexByDate(user.email, user.id, todayStr),
     ]).then(([pointsRes, filesRes]) => {
       // 已上傳檔案的 itemId 集合
       const uploadedIds = new Set(
@@ -324,14 +324,18 @@ export default function CalendarOverview() {
       const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
       const isOff = isWeekend || isHoliday;
       
-      if (!isOff) {
-        const att = attendanceMap[dateStr];
-        let dayRatio = 1; // 1 = 8h, 0.5 = 4h
-        if (att) {
-          if (LEAVE_CODES.some(c => att.amStatus && att.amStatus.includes(c))) dayRatio -= 0.5;
-          if (LEAVE_CODES.some(c => att.pmStatus && att.pmStatus.includes(c))) dayRatio -= 0.5;
+      const att = attendanceMap[dateStr];
+      if (att && att.workHours !== undefined) {
+        workDaysCount += (parseFloat(String(att.workHours)) || 0) / 8;
+      } else {
+        if (!isOff) {
+          let dayRatio = 1; // 1 = 8h, 0.5 = 4h
+          if (att) {
+            if (LEAVE_CODES.some(c => att.amStatus && att.amStatus.includes(c))) dayRatio -= 0.5;
+            if (LEAVE_CODES.some(c => att.pmStatus && att.pmStatus.includes(c))) dayRatio -= 0.5;
+          }
+          workDaysCount += Math.max(0, dayRatio);
         }
-        workDaysCount += Math.max(0, dayRatio);
       }
     });
 
@@ -693,7 +697,7 @@ export default function CalendarOverview() {
                     rows.push(
                       <tr
                         key={dateStr}
-                        onClick={() => !isOff && handleDateClick(dateStr)}
+                        onClick={() => handleDateClick(dateStr)}
                         className={cn(
                           "border-b border-border/40 transition-colors",
                           isOff ? "bg-slate-50/60 text-muted-foreground/50" : "hover:bg-muted/30 cursor-pointer",

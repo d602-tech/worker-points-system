@@ -127,7 +127,7 @@ export default function MonthlyReport() {
       files: [],
     }));
 
-    gasGet("getMonthlyPoints", { workerId: user.id, yearMonth: monthStr })
+    gasGet("getMonthlyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr })
       .then(res => {
         if (res.success && Array.isArray(res.data)) {
           const dbItems = res.data as Record<string, unknown>[];

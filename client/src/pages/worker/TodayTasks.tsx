@@ -110,8 +110,8 @@ export default function TodayTasks() {
     }));
 
     Promise.all([
-      gasGet("getDailyPoints", { workerId: user.id, date: dateStr }),
-      getFileIndexByDate(user.id, dateStr),
+      gasGet("getDailyPoints", { callerEmail: user.email, workerId: user.id, date: dateStr }),
+      getFileIndexByDate(user.email, user.id, dateStr),
     ]).then(([pointsRes, filesRes]) => {
       let updatedTasks = [...initialTasks];
 

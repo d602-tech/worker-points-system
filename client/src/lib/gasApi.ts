@@ -155,8 +155,8 @@ export interface WorkerRow {
   loginMethod: string;   // 登入方式
 }
 
-export async function getWorkers(): Promise<GasResponse<WorkerRow[]>> {
-  return gasGet<WorkerRow[]>("getWorkers");
+export async function getWorkers(callerEmail: string): Promise<GasResponse<WorkerRow[]>> {
+  return gasGet<WorkerRow[]>("getWorkers", { callerEmail });
 }
 
 export async function upsertWorker(worker: Partial<WorkerRow>): Promise<GasResponse<WorkerRow>> {
@@ -184,8 +184,8 @@ export interface AttendanceRow {
   updatedAt: string;     // 最後更新時間
 }
 
-export async function getAttendance(userId: string, yearMonth: string): Promise<GasResponse<AttendanceRow[]>> {
-  return gasGet<AttendanceRow[]>("getAttendance", { userId, yearMonth });
+export async function getAttendance(callerEmail: string, userId: string, yearMonth: string): Promise<GasResponse<AttendanceRow[]>> {
+  return gasGet<AttendanceRow[]>("getAttendance", { callerEmail, workerId: userId, yearMonth });
 }
 
 export async function upsertAttendance(record: Partial<AttendanceRow>): Promise<GasResponse<AttendanceRow>> {
@@ -359,11 +359,12 @@ export async function saveFileIndex(
  * 查詢檔案索引（依人員 + 日期，可選填項目編號）
  */
 export async function getFileIndexByDate(
+  callerEmail: string,
   workerId: string,
   date: string,
   itemId?: string
 ): Promise<GasResponse<FileIndexRow[]>> {
-  const params: Record<string, string> = { workerId, date };
+  const params: Record<string, string> = { callerEmail, workerId, date };
   if (itemId) params.itemId = itemId;
   return gasGet<FileIndexRow[]>("getFileIndex", params);
 }
