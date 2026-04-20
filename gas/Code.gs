@@ -24,6 +24,7 @@ const SHEETS = {
   FILES_INDEX:      '檔案索引',
   MONTHLY_SNAPSHOT: '月結快照',
   ACTIVITY_LOG:     '操作日誌',
+  MONTHLY_SUMMARY:  '月統計',
 };
 
 const COLUMNS = {
@@ -86,6 +87,15 @@ const COLUMNS = {
     LOG_ID: '日誌編號', USER_ID: '人員編號',
     TIMESTAMP: '操作時間', ACTION_TYPE: '操作類型',
     DESCRIPTION: '操作說明',
+  },
+  MONTHLY_SUMMARY: {
+    USER_ID:       '人員編號',
+    YEAR_MONTH:    '年月',
+    DAILY_TOTAL:   '每日點數小計',
+    MONTHLY_TOTAL: '每月點數小計',
+    PERF_TOTAL:    '績效點數小計',
+    GRAND_TOTAL:   '本月總計',
+    UPDATED_AT:    '更新時間',
   },
 };
 
@@ -169,6 +179,10 @@ function doGet(e) {
       case 'getReport':
         data = getReport(e.parameter.callerEmail, e.parameter.type,
                          e.parameter.yearMonth);
+        break;
+      case 'getMonthlyTotals':
+        data = getMonthlyTotals(e.parameter.callerEmail, e.parameter.workerId,
+                                e.parameter.yearMonth);
         break;
       default:
         data = { success: false, error: '未知的 action：' + action };
@@ -313,6 +327,7 @@ function setupHeaders(ss) {
   headerMap[SHEETS.FILES_INDEX]      = Object.values(COLUMNS.FILES_INDEX);
   headerMap[SHEETS.MONTHLY_SNAPSHOT] = Object.values(COLUMNS.MONTHLY_SNAPSHOT);
   headerMap[SHEETS.ACTIVITY_LOG]     = Object.values(COLUMNS.ACTIVITY_LOG);
+  headerMap[SHEETS.MONTHLY_SUMMARY]  = Object.values(COLUMNS.MONTHLY_SUMMARY);
 
   Object.entries(headerMap).forEach(function(entry) {
     var sheetName = entry[0];
@@ -1735,6 +1750,192 @@ function getPointDefs(workerType) {
     });
   }
   return { success: true, data: records };
+}
+
+// ========== [月統計彙算 API] ==========
+
+/**
+ * getMonthlyTotals — 一次取得某人某月的所有點數加總
+ *
+ * 回傳格式：
+ *   { success: true, data: {
+ *       dailyTotal:   每日點數(A類)加總,
+ *       monthlyTotal: 月報非績效點數加總,
+ *       perfTotal:    績效(C類)點數加總,
+ *       grandTotal:   三者合計,
+ *       yearMonth:    '2026-04'
+ *   }}
+ *
+ * 同時會將計算結果寫入「月統計」分頁，作為快取使用。
+ * 管理員可呼叫 rebuildMonthlySummary() 重建所有人的快取。
+ */
+function getMonthlyTotals(callerEmail, workerId, yearMonth) {
+  var perm = checkPermission(callerEmail, ['admin','deptMgr','billing','worker']);
+  if (!perm.allowed) return { success: false, error: perm.reason };
+
+  // worker 只能查自己
+  var targetId = workerId || perm.callerUserId;
+  if (perm.callerRole === 'worker' && targetId !== perm.callerUserId) {
+    return { success: false, error: '只能查詢自己的點數' };
+  }
+
+  var ym = String(yearMonth || '').replace('/', '-').substring(0, 7);
+  if (!ym) return { success: false, error: '缺少 yearMonth 參數' };
+
+  var ss = getAppSpreadsheet();
+  var totals = _computeMonthlyTotals(ss, targetId, ym);
+
+  // 寫入快取分頁
+  _writeMonthlySummaryRow(ss, targetId, ym, totals);
+
+  return { success: true, data: Object.assign({ yearMonth: ym }, totals) };
+}
+
+/**
+ * 內部計算函式：彙算該人員該月的每日 + 每月 + 績效點數
+ */
+function _computeMonthlyTotals(ss, workerId, ym) {
+  // ── 每日點數（A 類） ──
+  var dpSheet  = ss.getSheetByName(SHEETS.DAILY_POINTS);
+  var dpData   = dpSheet ? dpSheet.getDataRange().getValues() : [];
+  var dpHdr    = dpData[0] || [];
+  var dpUidIdx = dpHdr.indexOf(COLUMNS.DAILY_POINTS.USER_ID);   // '人員編號'
+  var dpDtIdx  = dpHdr.indexOf(COLUMNS.DAILY_POINTS.DATE);      // '日期'
+  var dpPtIdx  = dpHdr.indexOf(COLUMNS.DAILY_POINTS.POINTS);    // '點數'
+
+  var dailyTotal = 0;
+  for (var i = 1; i < dpData.length; i++) {
+    if (String(dpData[i][dpUidIdx]) !== String(workerId)) continue;
+    var d = dpData[i][dpDtIdx];
+    if (d instanceof Date) d = Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
+    else d = String(d).substring(0, 10);
+    if (!d.startsWith(ym)) continue;
+    dailyTotal += parseFloat(dpData[i][dpPtIdx]) || 0;
+  }
+
+  // ── 每月點數（B/D/S/P 類） ──
+  var mpSheet  = ss.getSheetByName(SHEETS.MONTHLY_POINTS);
+  var mpData   = mpSheet ? mpSheet.getDataRange().getValues() : [];
+  var mpHdr    = mpData[0] || [];
+  var mpUidIdx = mpHdr.indexOf(COLUMNS.MONTHLY_POINTS.USER_ID);    // '人員編號'
+  var mpYmIdx  = mpHdr.indexOf(COLUMNS.MONTHLY_POINTS.YEAR_MONTH); // '年月'
+  var mpPtIdx  = mpHdr.indexOf(COLUMNS.MONTHLY_POINTS.POINTS);     // '點數'
+  var mpItemIdx= mpHdr.indexOf(COLUMNS.MONTHLY_POINTS.ITEM_ID);    // '項目編號'
+  var mpPerfIdx= mpHdr.indexOf(COLUMNS.MONTHLY_POINTS.PERF_LEVEL); // '績效等級'
+
+  var monthlyTotal = 0;
+  var perfTotal    = 0;
+  for (var j = 1; j < mpData.length; j++) {
+    if (String(mpData[j][mpUidIdx]) !== String(workerId)) continue;
+    // yearMonth 可能存為 'yyyy-MM' 或 'yyyy/MM'
+    var rowYm = String(mpData[j][mpYmIdx]).replace('/', '-').substring(0, 7);
+    if (rowYm !== ym) continue;
+    var pts    = parseFloat(mpData[j][mpPtIdx]) || 0;
+    var itemId = String(mpData[j][mpItemIdx]);
+    // C 類（績效）判斷：itemId 包含 '-C' 或 績效等級欄有值
+    var isPerf = itemId.indexOf('-C') !== -1 || itemId.indexOf('_C_') !== -1 ||
+                 (mpPerfIdx >= 0 && mpData[j][mpPerfIdx] && String(mpData[j][mpPerfIdx]).trim() !== '');
+    if (isPerf) {
+      perfTotal += pts;
+    } else {
+      monthlyTotal += pts;
+    }
+  }
+
+  return {
+    dailyTotal:   dailyTotal,
+    monthlyTotal: monthlyTotal,
+    perfTotal:    perfTotal,
+    grandTotal:   dailyTotal + monthlyTotal + perfTotal,
+  };
+}
+
+/**
+ * 將彙算結果寫入「月統計」分頁（upsert）
+ */
+function _writeMonthlySummaryRow(ss, workerId, ym, totals) {
+  var sheet = ss.getSheetByName(SHEETS.MONTHLY_SUMMARY);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS.MONTHLY_SUMMARY);
+    sheet.appendRow(Object.values(COLUMNS.MONTHLY_SUMMARY));
+  }
+  var data    = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var uidIdx  = headers.indexOf(COLUMNS.MONTHLY_SUMMARY.USER_ID);
+  var ymIdx   = headers.indexOf(COLUMNS.MONTHLY_SUMMARY.YEAR_MONTH);
+  var now     = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+  var newRow  = [
+    workerId, ym,
+    totals.dailyTotal, totals.monthlyTotal, totals.perfTotal, totals.grandTotal,
+    now,
+  ];
+
+  // 尋找現有列
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][uidIdx]) === String(workerId) &&
+        String(data[i][ymIdx]).replace('/','-').substring(0,7) === ym) {
+      sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+      return;
+    }
+  }
+  sheet.appendRow(newRow);
+}
+
+/**
+ * 管理員一鍵重建所有人員所有月份的「月統計」快取分頁
+ * 在 GAS 編輯器中手動執行此函式即可重建
+ *
+ * 使用方式：
+ *   1. 開啟 GAS 編輯器
+ *   2. 選取此函式 rebuildMonthlySummary
+ *   3. 點選「執行」
+ *   4. 完成後「月統計」分頁會有最新彙算資料
+ */
+function rebuildMonthlySummary() {
+  var ss      = getAppSpreadsheet();
+  var users   = sheetToObjects(ss.getSheetByName(SHEETS.USERS))
+                  .filter(function(u) { return String(u[COLUMNS.USERS.IS_ACTIVE]) === 'true'; });
+
+  // 找出所有有資料的年月
+  var ymSet = {};
+  sheetToObjects(ss.getSheetByName(SHEETS.DAILY_POINTS)).forEach(function(r) {
+    var d = r[COLUMNS.DAILY_POINTS.DATE];
+    if (d instanceof Date) d = Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
+    else d = String(d).substring(0, 10);
+    if (d.length >= 7) ymSet[d.substring(0, 7)] = true;
+  });
+  sheetToObjects(ss.getSheetByName(SHEETS.MONTHLY_POINTS)).forEach(function(r) {
+    var ym = String(r[COLUMNS.MONTHLY_POINTS.YEAR_MONTH]).replace('/','-').substring(0,7);
+    if (ym.length === 7) ymSet[ym] = true;
+  });
+  var ymList = Object.keys(ymSet).sort();
+
+  // 清除舊快取（保留標頭）
+  var summarySheet = ss.getSheetByName(SHEETS.MONTHLY_SUMMARY);
+  if (!summarySheet) {
+    summarySheet = ss.insertSheet(SHEETS.MONTHLY_SUMMARY);
+    summarySheet.appendRow(Object.values(COLUMNS.MONTHLY_SUMMARY));
+  } else {
+    var lr = summarySheet.getLastRow();
+    if (lr > 1) summarySheet.deleteRows(2, lr - 1);
+  }
+
+  var count = 0;
+  users.forEach(function(u) {
+    var wid = u[COLUMNS.USERS.ID];
+    ymList.forEach(function(ym) {
+      var totals = _computeMonthlyTotals(ss, wid, ym);
+      if (totals.grandTotal > 0) {
+        _writeMonthlySummaryRow(ss, wid, ym, totals);
+        count++;
+      }
+    });
+  });
+
+  Logger.log('✅ rebuildMonthlySummary 完成，共重建 ' + count + ' 筆');
+  try {
+    SpreadsheetApp.getUi().alert('✅ 月統計分頁重建完成！\n共 ' + count + ' 筆資料。');
+  } catch(e) {}
 }
 
 // ========== [共用工具] ==========

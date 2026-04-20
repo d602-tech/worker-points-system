@@ -126,8 +126,8 @@ export default function MonthlyReport() {
 
     Promise.all([
       gasGet("getMonthlyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr }),
-      gasGet("getDailyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr })
-    ]).then(([res, dailyRes]) => {
+      gasGet<{ dailyTotal: number; monthlyTotal: number; perfTotal: number; grandTotal: number }>("getMonthlyTotals", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr }),
+    ]).then(([res, totalsRes]) => {
       if (res.success && Array.isArray(res.data)) {
         const dbItems = res.data as Record<string, unknown>[];
         setItems(initialItems.map(item => {
@@ -157,18 +157,9 @@ export default function MonthlyReport() {
         setItems(initialItems);
       }
 
-      if (dailyRes.success && Array.isArray(dailyRes.data)) {
-        const sum = (dailyRes.data as any[]).reduce((acc, curr) => {
-          let pt = 0;
-          for (const key in curr as any) {
-            const k = String(key);
-            if (k.includes("點數") || k.toLowerCase().includes("points") || k === "POINTS") {
-              pt += Number((curr as any)[key]) || 0;
-            }
-          }
-          return acc + pt;
-        }, 0);
-        setDailyTotal(sum);
+      // 使用後端已彙算完成的各項小計
+      if (totalsRes.success && totalsRes.data) {
+        setDailyTotal(totalsRes.data.dailyTotal || 0);
       } else {
         setDailyTotal(0);
       }
