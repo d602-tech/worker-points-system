@@ -252,12 +252,12 @@ export default function CalendarOverview() {
       if (pointsRes.success && Array.isArray(pointsRes.data)) {
         pointsRes.data.forEach(row => {
           let pts = 0;
-          for (const key in row) {
+          for (const key in row as any) {
             if (key.trim() === "點數" || key.trim().toLowerCase() === "points") {
-              pts += Number((row as Record<string, unknown>)[key]) || 0;
+              pts += Number((row as any)[key]) || 0;
             }
           }
-          const d = (row as Record<string, unknown>)["日期"] || row.date;
+          const d = (row as any)["日期"] || (row as any).date;
           if (d) {
             const dStr = String(d).substring(0, 10);
             pMap[dStr] = (pMap[dStr] || 0) + pts;
@@ -267,7 +267,7 @@ export default function CalendarOverview() {
 
       if (filesRes.success && Array.isArray(filesRes.data)) {
         filesRes.data.forEach(row => {
-          const d = (row as Record<string, unknown>)["日期"] || row.date;
+          const d = (row as any)["日期"] || (row as any).date;
           if (d) {
             const dStr = String(d).substring(0, 10);
             uMap[dStr] = true;
@@ -288,15 +288,18 @@ export default function CalendarOverview() {
     const map = isNextMonth ? nextMonthAttMap : attendanceMap;
     const setMap = isNextMonth ? setNextMonthAttMap : setAttendanceMap as any;
 
-    const existingAtt = map[dateStr] || {
+    const existingAtt = map[dateStr] || ({
       userId: user.id,
       date: dateStr,
       workHours: undefined,
       amStatus: "",
       pmStatus: "",
       isFinalized: false,
-      note: ""
-    } as AttendanceRow;
+      note: "",
+      leaveHours: 0,
+      source: "planned",
+      updatedAt: new Date().toISOString()
+    } as unknown as AttendanceRow);
 
     if (existingAtt.workHours === undefined) {
         const d = new Date(dateStr);
@@ -432,7 +435,7 @@ export default function CalendarOverview() {
     if (user?.id) {
       const [tasksRes, filesRes] = await Promise.all([
         gasGet<DailyPointRow[]>("getDailyPoints", { workerId: user.id, date: dateStr }),
-        getFileIndexByDate(user.id, dateStr),
+        getFileIndexByDate(user.email, user.id, dateStr),
       ]);
       if (tasksRes.success && tasksRes.data) setDayTasks(tasksRes.data);
       if (filesRes.success && filesRes.data) setDayFiles(filesRes.data);

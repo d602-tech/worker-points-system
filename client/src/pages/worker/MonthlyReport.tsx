@@ -768,8 +768,7 @@ export default function MonthlyReport() {
                         e.target.value = "";
                       }}
                     />
-                  </div>
-                )}
+
 
                 {/* 已上傳的 Drive 佐證（鎖定狀態） */}
                 {locked && item.files.filter(f => f.driveFileId).length > 0 && (

@@ -25,10 +25,10 @@ export default function Profile() {
   // 角色對應中文名稱
   const roleLabel = {
     admin: "管理者",
-    dept_mgr: "部門管理員",
+    deptMgr: "部門管理員",
     billing: "廠商請款人員",
     worker: "協助員",
-  }[user.role] || user.accountType || "協助員";
+  }[user.role] || (user as any).accountType || "協助員";
 
   return (
     <div className="flex flex-col min-h-full bg-background">

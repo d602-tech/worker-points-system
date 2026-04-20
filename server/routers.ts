@@ -194,7 +194,7 @@ export const appRouter = router({
         timestamp: z.string(),
         note: z.string().default(''),
       }))
-      .mutation(({ input }) => gasReviewLog.append(input)),
+      .mutation(({ input }) => gasReviewLog.append({ ...input, changeDetail: "" })),
   }),
 
   // ---- 佐證檔案 ----
