@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 115年度協助員點數管理系統
  * Google Apps Script — 單一 Code.gs v3.0
  *
@@ -895,10 +895,16 @@ function getDailyPoints(callerEmail, workerId, date, yearMonth) {
     if (perm.callerRole === 'worker' && uid !== perm.callerUserId) return false;
     if (workerId && uid !== workerId) return false;
     if (date) {
-      if (String(r[COLUMNS.DAILY_POINTS.DATE]) !== String(date)) return false;
+      var sheetDate = r[COLUMNS.DAILY_POINTS.DATE];
+      if (sheetDate instanceof Date) sheetDate = Utilities.formatDate(sheetDate, 'Asia/Taipei', 'yyyy-MM-dd');
+      else sheetDate = String(sheetDate).substring(0, 10);
+      if (sheetDate !== String(date)) return false;
     } else if (yearMonth) {
+      var sheetDate = r[COLUMNS.DAILY_POINTS.DATE];
+      if (sheetDate instanceof Date) sheetDate = Utilities.formatDate(sheetDate, 'Asia/Taipei', 'yyyy-MM-dd');
+      else sheetDate = String(sheetDate).substring(0, 10);
       var ym = yearMonth.replace('/', '-').substring(0, 7);
-      if (!String(r[COLUMNS.DAILY_POINTS.DATE]).startsWith(ym)) return false;
+      if (!sheetDate.startsWith(ym)) return false;
     }
     return true;
   });
@@ -939,8 +945,12 @@ function saveDailyPoints(callerEmail, record) {
       }
     } else if (userId && record[COLUMNS.DAILY_POINTS.DATE] && record[COLUMNS.DAILY_POINTS.ITEM_ID]) {
       for (var j = 1; j < data.length; j++) {
+        var rowDate = data[j][dateIdx];
+        if (rowDate instanceof Date) rowDate = Utilities.formatDate(rowDate, 'Asia/Taipei', 'yyyy-MM-dd');
+        else rowDate = String(rowDate).substring(0, 10);
+        
         if (String(data[j][uidIdx])    === String(userId) &&
-            String(data[j][dateIdx])   === String(record[COLUMNS.DAILY_POINTS.DATE]) &&
+            rowDate                    === String(record[COLUMNS.DAILY_POINTS.DATE]) &&
             String(data[j][itemIdIdx]) === String(record[COLUMNS.DAILY_POINTS.ITEM_ID])) {
           targetRow = j + 1;
           recordId  = data[j][ridIdx];
@@ -996,8 +1006,13 @@ function saveDailyPointsBatch(callerEmail, workerId, date, items) {
   var ratio = 0;
   for (var k = 0; k < attRecords.length; k++) {
     var r = attRecords[k];
-    if (r[COLUMNS.ATTENDANCE.USER_ID] === workerId &&
-        String(r[COLUMNS.ATTENDANCE.DATE]) === String(date)) {
+    var sheetDate = r[COLUMNS.ATTENDANCE.DATE];
+    if (sheetDate instanceof Date) {
+      sheetDate = Utilities.formatDate(sheetDate, 'Asia/Taipei', 'yyyy-MM-dd');
+    } else {
+      sheetDate = String(sheetDate).substring(0, 10);
+    }
+    if (r[COLUMNS.ATTENDANCE.USER_ID] === workerId && sheetDate === String(date)) {
       var wh = parseFloat(r[COLUMNS.ATTENDANCE.WORK_HOURS]) || 0;
       if (wh >= 8) ratio = 1;
       else if (wh >= 4) ratio = 0.5;
@@ -1044,7 +1059,10 @@ function getMonthlyPoints(callerEmail, workerId, yearMonth) {
     var uid = r[COLUMNS.MONTHLY_POINTS.USER_ID];
     if (perm.callerRole === 'worker' && uid !== perm.callerUserId) return false;
     if (workerId && uid !== workerId) return false;
-    if (yearMonth && r[COLUMNS.MONTHLY_POINTS.YEAR_MONTH] !== yearMonth) return false;
+    var sheetYM = r[COLUMNS.MONTHLY_POINTS.YEAR_MONTH];
+    if (sheetYM instanceof Date) sheetYM = Utilities.formatDate(sheetYM, 'Asia/Taipei', 'yyyy-MM');
+    else sheetYM = String(sheetYM).substring(0, 7);
+    if (yearMonth && sheetYM !== yearMonth) return false;
     return true;
   });
 
@@ -1086,8 +1104,11 @@ function saveMonthlyPoints(callerEmail, record) {
       var ym = record[COLUMNS.MONTHLY_POINTS.YEAR_MONTH] || record.yearMonth;
       var itemId = record[COLUMNS.MONTHLY_POINTS.ITEM_ID] || record.itemId;
       for (var j = 1; j < data.length; j++) {
+        var rowYm = data[j][ymIdx];
+        if (rowYm instanceof Date) rowYm = Utilities.formatDate(rowYm, 'Asia/Taipei', 'yyyy-MM');
+        else rowYm = String(rowYm).substring(0, 7);
         if (String(data[j][uidIdx])    === String(userId) &&
-            String(data[j][ymIdx])     === String(ym) &&
+            rowYm                      === String(ym) &&
             String(data[j][itemIdIdx]) === String(itemId)) {
           targetRow = j + 1;
           recordId  = data[j][ridIdx];

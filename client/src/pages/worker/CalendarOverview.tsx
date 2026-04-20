@@ -719,8 +719,7 @@ export default function CalendarOverview() {
                               className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
                             >
                               <option value="">—</option>
-                              <option value="本處">本處</option>
-                              <option value="工地">工地</option>
+                              <option value="出勤">出勤</option>
                               <option value="公假">公假</option>
                               <option value="特休">特休</option>
                               <option value="事假">事假</option>
@@ -744,8 +743,7 @@ export default function CalendarOverview() {
                               className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
                             >
                               <option value="">—</option>
-                              <option value="本處">本處</option>
-                              <option value="工地">工地</option>
+                              <option value="出勤">出勤</option>
                               <option value="公假">公假</option>
                               <option value="特休">特休</option>
                               <option value="事假">事假</option>
