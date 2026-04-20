@@ -253,7 +253,8 @@ export default function CalendarOverview() {
         pointsRes.data.forEach(row => {
           let pts = 0;
           for (const key in row as any) {
-            if (key.trim() === "點數" || key.trim().toLowerCase() === "points") {
+            const k = String(key);
+            if (k.includes("點數") || k.toLowerCase().includes("points") || k === "POINTS") {
               pts += Number((row as any)[key]) || 0;
             }
           }

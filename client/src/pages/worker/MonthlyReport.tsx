@@ -160,9 +160,10 @@ export default function MonthlyReport() {
       if (dailyRes.success && Array.isArray(dailyRes.data)) {
         const sum = (dailyRes.data as any[]).reduce((acc, curr) => {
           let pt = 0;
-          for (const key in curr) {
-            if (key.trim() === "點數" || key.trim().toLowerCase() === "points") {
-              pt += Number((curr as Record<string, unknown>)[key]) || 0;
+          for (const key in curr as any) {
+            const k = String(key);
+            if (k.includes("點數") || k.toLowerCase().includes("points") || k === "POINTS") {
+              pt += Number((curr as any)[key]) || 0;
             }
           }
           return acc + pt;
@@ -500,7 +501,7 @@ export default function MonthlyReport() {
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16 blur-2xl" />
             <div className="flex flex-col">
               <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">
-                本月累計（含每日及月報）
+                本月總計 (已含每月與每日點數)
               </span>
               <span className="text-3xl font-black text-white">
                 {totalPoints.toLocaleString()}
