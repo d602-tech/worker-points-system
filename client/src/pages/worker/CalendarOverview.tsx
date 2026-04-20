@@ -265,7 +265,7 @@ export default function CalendarOverview() {
     });
   }, [user?.id, user?.workerType]);
 
-  const updateDailyStatus = async (dateStr: string, period: "am" | "pm", val: string) => {
+  const updateDailyStatus = async (dateStr: string, period: "am" | "pm" | "workHours", val: string) => {
     if (!user?.id) return;
     const isNextMonth = dateStr.startsWith(format(addMonths(currentMonth, 1), "yyyy-MM"));
     const map = isNextMonth ? nextMonthAttMap : attendanceMap;
@@ -274,19 +274,29 @@ export default function CalendarOverview() {
     const existingAtt = map[dateStr] || {
       userId: user.id,
       date: dateStr,
-      workHours: 8,
+      workHours: undefined,
       amStatus: "",
       pmStatus: "",
       isFinalized: false,
       note: ""
     } as AttendanceRow;
 
-    const newAtt = { ...existingAtt, [period === "am" ? "amStatus" : "pmStatus"]: val };
+    if (existingAtt.workHours === undefined) {
+        const d = new Date(dateStr);
+        const isOff = d.getDay() === 0 || d.getDay() === 6 || TW_HOLIDAYS_2026.has(dateStr);
+        existingAtt.workHours = isOff ? 0 : 8;
+    }
 
-    let wh = 8;
-    if (LEAVE_CODES.some(c => newAtt.amStatus && newAtt.amStatus.includes(c))) wh -= 4;
-    if (LEAVE_CODES.some(c => newAtt.pmStatus && newAtt.pmStatus.includes(c))) wh -= 4;
-    newAtt.workHours = Math.max(0, wh);
+    const newAtt = { ...existingAtt };
+    if (period === "workHours") newAtt.workHours = Number(val);
+    else newAtt[period === "am" ? "amStatus" : "pmStatus"] = val;
+
+    if (period !== "workHours") {
+      let wh = 8;
+      if (LEAVE_CODES.some(c => newAtt.amStatus && newAtt.amStatus.includes(c))) wh -= 4;
+      if (LEAVE_CODES.some(c => newAtt.pmStatus && newAtt.pmStatus.includes(c))) wh -= 4;
+      newAtt.workHours = Math.max(0, wh);
+    }
 
     setMap((prev: Record<string, AttendanceRow>) => ({ ...prev, [dateStr]: newAtt }));
 
@@ -606,6 +616,44 @@ export default function CalendarOverview() {
           start: startOfMonth(currentMonth),
           end: endOfMonth(nextMonth),
         });
+
+        let errorMsg: string | null = null;
+        const monthsToCheck = [currentMonth, nextMonth];
+        for (const month of monthsToCheck) {
+            const mDays = planDays.filter(d => d.getMonth() === month.getMonth());
+            let targetDays = 0;
+            let currentDays = 0;
+            mDays.forEach(day => {
+                const dateStr = format(day, "yyyy-MM-dd");
+                const isOff = getDay(day) === 0 || getDay(day) === 6 || TW_HOLIDAYS_2026.has(dateStr);
+                if (!isOff) targetDays++;
+                
+                const att = combined[dateStr];
+                const wh = att?.workHours !== undefined ? att.workHours : (isOff ? 0 : 8);
+                if (wh > 0) currentDays++;
+            });
+            if (currentDays > targetDays) {
+                errorMsg = `請先安排其他休假再排班（${format(month, "M月")}應出勤 ${targetDays} 天，目前排了 ${currentDays} 天）`;
+                break;
+            }
+        }
+        
+        if (!errorMsg) {
+            let consec = 0;
+            planDays.forEach(day => {
+                const dateStr = format(day, "yyyy-MM-dd");
+                const isOff = getDay(day) === 0 || getDay(day) === 6 || TW_HOLIDAYS_2026.has(dateStr);
+                const att = combined[dateStr];
+                const wh = att?.workHours !== undefined ? att.workHours : (isOff ? 0 : 8);
+                if (wh > 0) {
+                    consec++;
+                    if (consec >= 7) errorMsg = "不能連續出勤 7 天";
+                } else {
+                    consec = 0;
+                }
+            });
+        }
+
         return (
           <div className="px-4 py-4 space-y-3 pb-36">
             <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
@@ -664,7 +712,7 @@ export default function CalendarOverview() {
                           {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
                         </td>
                         <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                          {!att?.isFinalized && !isOff && viewMode === "table" ? (
+                          {!att?.isFinalized && viewMode === "table" ? (
                             <select
                               value={att?.amStatus || ""}
                               onChange={e => updateDailyStatus(dateStr, "am", e.target.value)}
@@ -689,7 +737,7 @@ export default function CalendarOverview() {
                           )}
                         </td>
                         <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                          {!att?.isFinalized && !isOff && viewMode === "table" ? (
+                          {!att?.isFinalized && viewMode === "table" ? (
                             <select
                               value={att?.pmStatus || ""}
                               onChange={e => updateDailyStatus(dateStr, "pm", e.target.value)}
@@ -714,7 +762,19 @@ export default function CalendarOverview() {
                           )}
                         </td>
                         <td className="px-2 py-2 text-center text-xs text-muted-foreground">
-                          {att?.workHours ? `${att.workHours}h` : isOff ? "—" : "8h"}
+                          {!att?.isFinalized && viewMode === "table" ? (
+                            <select
+                              value={att?.workHours !== undefined ? att.workHours : (isOff ? 0 : 8)}
+                              onChange={e => updateDailyStatus(dateStr, "workHours", e.target.value)}
+                              className="text-xs font-medium px-1 py-0.5 rounded bg-white border border-slate-300 outline-none w-[42px] max-w-[50px] appearance-none text-center focus:ring-2 focus:ring-blue-400"
+                            >
+                              {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(h => (
+                                <option key={h} value={h}>{h} h</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">{att?.workHours !== undefined ? `${att.workHours}h` : isOff ? "—" : "8h"}</span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-center">
                           {isHoliday ? (
@@ -737,11 +797,19 @@ export default function CalendarOverview() {
               </table>
             </div>
 
+            {/* 錯誤警告 */}
+            {errorMsg && (
+              <div className="bg-red-50 border border-red-200 text-red-600 font-bold px-4 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                {errorMsg}
+              </div>
+            )}
+
             {/* 送出出勤計畫 */}
             <button
               onClick={handleSubmitPlan}
-              disabled={planSubmitting}
-              className="w-full py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-elegant"
+              disabled={planSubmitting || !!errorMsg}
+              className="w-full py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-elegant disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
             >
               {planSubmitting ? (
                 <><Loader2 className="w-4 h-4 animate-spin" />送出中...</>

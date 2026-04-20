@@ -225,11 +225,18 @@ export default function TodayTasks() {
             try {
               const base64Data = await blobToBase64(file.blob!);
 
+              const fileExt = file.name.split('.').pop() || 'jpg';
+              const dateStrFormatted = format(currentDate, "yyyyMMdd");
+              const taskNameStr = task.name || task.itemId;
+              const userNameStr = user?.name || "未知";
+              const noteSuffix = task.note ? `_${task.note}` : "";
+              const formattedFileName = `${dateStrFormatted}_${taskNameStr}_${userNameStr}${noteSuffix}.${fileExt}`;
+
               // 步驟 1：上傳至 Google Drive
               const uploadRes = await gasPost("uploadFileToDrive", {
                 callerEmail: user?.email || "",
                 base64Data,
-                fileName: file.name,
+                fileName: formattedFileName,
                 mimeType: file.type,
                 workerId: user?.id || "",
                 date: dateStr,

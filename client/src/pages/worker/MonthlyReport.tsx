@@ -270,12 +270,19 @@ export default function MonthlyReport() {
           for (const file of item.files.filter(f => f.blob && !f.driveFileId)) {
             const base64Data = await blobToBase64(file.blob!);
             const category = item.category === "B1" ? "B1_月報" : "B2_月報";
+
+            const fileExt = file.name.split('.').pop() || 'jpg';
+            const dateStrFormatted = format(currentMonth, "yyyyMM");
+            const taskNameStr = item.name || item.itemId;
+            const userNameStr = user?.name || "未知";
+            const formattedFileName = `${dateStrFormatted}_${taskNameStr}_${userNameStr}.${fileExt}`;
+
             const uploadRes = await gasPost<{ driveFileId: string; fileName: string }>(
               "uploadFileToDrive",
               {
                 callerEmail: user.email,
                 base64Data,
-                fileName: file.name,
+                fileName: formattedFileName,
                 mimeType: file.type,
                 workerId: user.id,
                 date: yearMonth,
