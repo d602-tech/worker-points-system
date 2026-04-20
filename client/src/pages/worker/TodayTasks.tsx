@@ -295,7 +295,8 @@ export default function TodayTasks() {
         date: dateStr,
         items: completedTasks.map(task => ({
           itemId: task.itemId,
-          points: task.points,
+          pointsPerUnit: task.points,  // 主要欄位
+          points: task.points,          // 備用
           quantity: 1,
           fileIds: task.files.map(f => f.driveFileId).filter(Boolean),
           note: task.note,
@@ -374,8 +375,9 @@ export default function TodayTasks() {
           date: dateStr,
           items: [{
             itemId: task.itemId,
-            quantity: 1,
+            pointsPerUnit: task.points,
             points: task.points,
+            quantity: 1,
             fileIds: newFileIds,
             note: `[修改原因: ${reason}]`,
           }],

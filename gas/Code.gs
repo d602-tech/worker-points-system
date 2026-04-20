@@ -1017,9 +1017,11 @@ function saveDailyPointsBatch(callerEmail, workerId, date, items) {
   }
 
   // 取得該日出勤狀態，計算點數比例
+  // 若差勤表尚無該日紀錄（例如尚未同步），預設按全天計算（ratio=1）
   var ss = getAppSpreadsheet();
   var attRecords = sheetToObjects(ss.getSheetByName(SHEETS.ATTENDANCE));
-  var ratio = 0;
+  var ratio = 1;          // 預設全天 — 避免因缺差勤紀錄而將點數歸零
+  var attFound = false;
   for (var k = 0; k < attRecords.length; k++) {
     var r = attRecords[k];
     var sheetDate = r[COLUMNS.ATTENDANCE.DATE];
@@ -1030,17 +1032,24 @@ function saveDailyPointsBatch(callerEmail, workerId, date, items) {
     }
     if (r[COLUMNS.ATTENDANCE.USER_ID] === workerId && sheetDate === String(date)) {
       var wh = parseFloat(r[COLUMNS.ATTENDANCE.WORK_HOURS]) || 0;
-      if (wh >= 8) ratio = 1;
+      if (wh >= 8)      ratio = 1;
       else if (wh >= 4) ratio = 0.5;
-      else ratio = 0;
+      else              ratio = 0;
+      attFound = true;
       break;
     }
+  }
+  if (!attFound) {
+    Logger.log('saveDailyPointsBatch: ' + workerId + ' ' + date +
+               ' 找不到差勤紀錄，以全天(ratio=1)計算');
   }
 
   var errors = [];
   var saved  = 0;
   items.forEach(function(item) {
-    var pts = Math.round((item.pointsPerUnit || item.points || 0) * ratio);
+    // 優先使用前端傳來的 pointsPerUnit，其次 points
+    var declared = parseFloat(item.pointsPerUnit || item.points || 0);
+    var pts = Math.round(declared * ratio);
     var rec = {};
     rec[COLUMNS.DAILY_POINTS.USER_ID]  = workerId;
     rec[COLUMNS.DAILY_POINTS.DATE]     = date;
