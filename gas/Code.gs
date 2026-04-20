@@ -214,7 +214,7 @@ function doPost(e) {
       case 'uploadFileToDrive':
         data = uploadFileToDrive(body.callerEmail, body.base64Data,
                                  body.fileName, body.mimeType,
-                                 body.workerId, body.date, body.category || 'A1');
+                                 body.workerId, body.date, body.category || 'A1', body.driveFolderId);
         break;
       case 'saveFileIndex':
         data = saveFileIndex(body.callerEmail, body.record || body.data || body);
@@ -1512,7 +1512,7 @@ function getReviewList(callerEmail, status, yearMonth) {
 var ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 function uploadFileToDrive(callerEmail, base64Data, fileName, mimeType,
-                           workerId, date, category) {
+                           workerId, date, category, driveFolderIdParam) {
   var perm = checkPermission(callerEmail, ['admin','worker']);
   if (!perm.allowed) return { success: false, error: perm.reason };
   if (!base64Data || !fileName || !mimeType) {
@@ -1525,7 +1525,7 @@ function uploadFileToDrive(callerEmail, base64Data, fileName, mimeType,
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var config = getConfigObject(ss);
-    var rootFolderId = config.driveFolderId;
+    var rootFolderId = config.driveFolderId || driveFolderIdParam;
     if (!rootFolderId) return { success: false, error: '系統設定缺少 driveFolderId' };
 
     var rootFolder = DriveApp.getFolderById(rootFolderId);

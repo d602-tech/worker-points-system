@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format, addDays, subDays, isToday, isBefore, startOfDay, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
+import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getFileIndexByDate, getDriveFolderId, type FileIndexRow } from "@/lib/gasApi";
 
@@ -333,7 +333,7 @@ export default function TodayTasks() {
           <div className="flex items-center gap-2">
             <div className="text-right">
               <div className="text-[10px] font-bold text-muted-foreground leading-none">身份類型</div>
-              <div className="text-xs font-semibold text-foreground max-w-[72px] truncate">{workerType}</div>
+              <div className="text-xs font-semibold text-foreground max-w-[72px] truncate">{WORKER_TYPE_LABELS[workerType as keyof typeof WORKER_TYPE_LABELS] || workerType}</div>
             </div>
             <div className="h-8 w-px bg-border/60" />
             <div className="text-center">

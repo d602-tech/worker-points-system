@@ -265,6 +265,77 @@ export default function CalendarOverview() {
     });
   }, [user?.id, user?.workerType]);
 
+  const updateDailyStatus = async (dateStr: string, period: "am" | "pm", val: string) => {
+    if (!user?.id) return;
+    const isNextMonth = dateStr.startsWith(format(addMonths(currentMonth, 1), "yyyy-MM"));
+    const map = isNextMonth ? nextMonthAttMap : attendanceMap;
+    const setMap = isNextMonth ? setNextMonthAttMap : setAttendanceMap as any;
+
+    const existingAtt = map[dateStr] || {
+      userId: user.id,
+      date: dateStr,
+      workHours: 8,
+      amStatus: "",
+      pmStatus: "",
+      isFinalized: false,
+      note: ""
+    } as AttendanceRow;
+
+    const newAtt = { ...existingAtt, [period === "am" ? "amStatus" : "pmStatus"]: val };
+
+    let wh = 8;
+    if (LEAVE_CODES.some(c => newAtt.amStatus && newAtt.amStatus.includes(c))) wh -= 4;
+    if (LEAVE_CODES.some(c => newAtt.pmStatus && newAtt.pmStatus.includes(c))) wh -= 4;
+    newAtt.workHours = Math.max(0, wh);
+
+    setMap((prev: Record<string, AttendanceRow>) => ({ ...prev, [dateStr]: newAtt }));
+
+    try {
+      await gasPost("upsertAttendance", { record: newAtt });
+    } catch {
+      toast.error("狀態更新失敗");
+    }
+  };
+
+  const estimatedPoints = useMemo(() => {
+    if (!user || !user.workerType) return 0;
+    const wt = user.workerType;
+    let workDaysCount = 0;
+    
+    // 取當月所有的天數
+    const daysInMonth = eachDayOfInterval({
+      start: startOfMonth(currentMonth),
+      end: endOfMonth(currentMonth),
+    });
+
+    daysInMonth.forEach(d => {
+      const dateStr = format(d, "yyyy-MM-dd");
+      const isWeekend = getDay(d) === 0 || getDay(d) === 6;
+      const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
+      const isOff = isWeekend || isHoliday;
+      
+      if (!isOff) {
+        const att = attendanceMap[dateStr];
+        let dayRatio = 1; // 1 = 8h, 0.5 = 4h
+        if (att) {
+          if (LEAVE_CODES.some(c => att.amStatus && att.amStatus.includes(c))) dayRatio -= 0.5;
+          if (LEAVE_CODES.some(c => att.pmStatus && att.pmStatus.includes(c))) dayRatio -= 0.5;
+        }
+        workDaysCount += Math.max(0, dayRatio);
+      }
+    });
+
+    const dailyItems = POINTS_CONFIG_SEED.filter(i => i.workerType === wt && i.category === "A1");
+    const dailyPoints = dailyItems.reduce((s, i) => s + i.pointsPerUnit, 0);
+
+    const monthlyItems = POINTS_CONFIG_SEED.filter(i => i.workerType === wt && (i.category === "B1" || i.category === "B2"));
+    const monthlyPoints = monthlyItems.reduce((s, i) => s + i.pointsPerUnit, 0);
+
+    const perfPoints = 2500; // 預設平
+    
+    return (workDaysCount * dailyPoints) + monthlyPoints + perfPoints;
+  }, [attendanceMap, currentMonth, user]);
+
   // ──────────────────────────────
   // 送出出勤計畫
   // ──────────────────────────────
@@ -492,6 +563,14 @@ export default function CalendarOverview() {
           </button>
         </div>
 
+        {/* 預估總點數面板 */}
+        <div className="px-4 pb-3">
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+            <div className="text-sm font-semibold text-blue-800">本月預估點數（依現有出勤、加上固定/績效估計）</div>
+            <div className="text-lg font-bold text-blue-700">{estimatedPoints.toLocaleString()}</div>
+          </div>
+        </div>
+
         {/* 視圖切換 */}
         <div className="flex px-4 pb-3 gap-2">
           <button
@@ -584,8 +663,24 @@ export default function CalendarOverview() {
                         <td className="px-2 py-2 text-center text-xs text-muted-foreground">
                           {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
                         </td>
-                        <td className="px-2 py-2 text-center">
-                          {att?.amStatus ? (
+                        <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          {!att?.isFinalized && !isOff && viewMode === "table" ? (
+                            <select
+                              value={att?.amStatus || ""}
+                              onChange={e => updateDailyStatus(dateStr, "am", e.target.value)}
+                              className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
+                            >
+                              <option value="">—</option>
+                              <option value="本處">本處</option>
+                              <option value="工地">工地</option>
+                              <option value="公假">公假</option>
+                              <option value="特休">特休</option>
+                              <option value="事假">事假</option>
+                              <option value="病假">病假</option>
+                              <option value="婚假">婚假</option>
+                              <option value="喪假">喪假</option>
+                            </select>
+                          ) : att?.amStatus ? (
                             <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.amStatus}</span>
                           ) : isOff ? (
                             <span className="text-xs text-muted-foreground/30">—</span>
@@ -593,8 +688,24 @@ export default function CalendarOverview() {
                             <span className="text-xs text-slate-300 font-medium">／</span>
                           )}
                         </td>
-                        <td className="px-2 py-2 text-center">
-                          {att?.pmStatus ? (
+                        <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          {!att?.isFinalized && !isOff && viewMode === "table" ? (
+                            <select
+                              value={att?.pmStatus || ""}
+                              onChange={e => updateDailyStatus(dateStr, "pm", e.target.value)}
+                              className="text-xs font-medium px-1.5 py-0.5 rounded bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-blue-400"
+                            >
+                              <option value="">—</option>
+                              <option value="本處">本處</option>
+                              <option value="工地">工地</option>
+                              <option value="公假">公假</option>
+                              <option value="特休">特休</option>
+                              <option value="事假">事假</option>
+                              <option value="病假">病假</option>
+                              <option value="婚假">婚假</option>
+                              <option value="喪假">喪假</option>
+                            </select>
+                          ) : att?.pmStatus ? (
                             <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.pmStatus}</span>
                           ) : isOff ? (
                             <span className="text-xs text-muted-foreground/30">—</span>

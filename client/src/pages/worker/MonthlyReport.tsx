@@ -127,7 +127,7 @@ export default function MonthlyReport() {
       files: [],
     }));
 
-    gasGet("getDailyPoints", { workerId: user.id, date: monthStr })
+    gasGet("getMonthlyPoints", { workerId: user.id, yearMonth: monthStr })
       .then(res => {
         if (res.success && Array.isArray(res.data)) {
           const dbItems = res.data as Record<string, unknown>[];
@@ -308,19 +308,20 @@ export default function MonthlyReport() {
 
       // 2. 送出點數紀錄
       for (const item of toSubmit) {
-        await gasPost("saveDailyPoints", {
-          workerId: user.id,
-          workerName: user.name,
-          date: yearMonth,
-          pointCode: item.itemId,
-          category: item.category,
-          taskName: item.name,
-          points:
-            item.category === "C"
-              ? PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0
-              : item.pointsPerUnit * item.quantity,
-          fileCount: item.files.length,
-          note: item.perfLevel ? `績效等級：${item.perfLevel}` : "",
+        await gasPost("saveMonthlyPoints", {
+          record: {
+            userId: user.id,
+            yearMonth: yearMonth,
+            itemId: item.itemId,
+            quantity: item.quantity,
+            points:
+              item.category === "C"
+                ? PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0
+                : item.pointsPerUnit * item.quantity,
+            fileIds: item.files.filter(f => f.driveFileId).map(f => f.driveFileId).join(","),
+            perfLevel: item.perfLevel || "",
+            status: "submitted"
+          }
         });
       }
 
