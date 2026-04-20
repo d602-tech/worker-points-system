@@ -136,18 +136,28 @@ export default function MonthlyReport() {
               r => r["項目編號"] === item.itemId || r["點數代碼"] === item.itemId,
             );
             if (found) {
-              const qty = Number(found["數量"] || 1);
+              const qty = Number(found["完成數量"] || found["數量"] || 1);
               const note = String(found["備註"] || "");
               const st = String(found["狀態"] || "submitted") as MonthlyItem["status"];
-              let perf: MonthlyItem["perfLevel"] = "";
-              if (item.category === "C") {
+              
+              let perf = String(found["績效等級"] || "") as MonthlyItem["perfLevel"];
+              if (item.category === "C" && !perf) {
                 if (note.includes("優")) perf = "優";
                 else if (note.includes("佳")) perf = "佳";
                 else if (note.includes("平")) perf = "平";
               }
-              // 退回 → 解鎖；其他已送出 → 鎖定
-              const effectiveStatus = st === "rejected" ? "" : st;
-              return { ...item, quantity: qty, perfLevel: perf, status: effectiveStatus, files: [] };
+              
+              const effectiveStatus = (st === "rejected" || st === "draft") ? "" : st;
+
+              const dbFileIdsStr = String(found["佐證檔案編號"] || "");
+              const loadedFiles = dbFileIdsStr.split(',').filter(Boolean).map((fid, idx) => ({
+                id: fid,
+                name: `已上傳檔案 ${idx + 1}`,
+                type: "application/octet-stream",
+                driveFileId: fid
+              }));
+
+              return { ...item, quantity: qty, perfLevel: perf, status: effectiveStatus, files: loadedFiles };
             }
             return item;
           }));
