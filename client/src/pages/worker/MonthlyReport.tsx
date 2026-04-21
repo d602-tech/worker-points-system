@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format, addMonths, subMonths } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
+
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getDriveFolderId } from "@/lib/gasApi";
 

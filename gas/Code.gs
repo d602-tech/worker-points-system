@@ -2141,12 +2141,37 @@ function setupRealAccounts() {
     ];
   });
 
-  // 清除現有資料（保留標頭）
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+  // 以 upsert 方式寫入資料：若 ID 已存在則更新，否則新增
+  var existingData = sheet.getDataRange().getValues();
+  var idToRow = {};
+  for (var i = 1; i < existingData.length; i++) {
+    var uid = existingData[i][0]; // 假設第一欄是人員編號
+    if (uid) idToRow[uid] = i + 1; // 工作表行號（含標頭）
+  }
 
-  sheet.getRange(2, 1, accounts.length, accounts[0].length).setValues(accounts);
-  Logger.log('✅ 建立正式人員名冊：' + accounts.length + ' 筆');
+  var newRows = [];
+  var updates = [];
+  accounts.forEach(function(acc) {
+    var id = acc[0];
+    if (idToRow[id]) {
+      updates.push({ row: idToRow[id], values: acc });
+    } else {
+      newRows.push(acc);
+    }
+  });
+
+  // 更新已存在的帳號
+  updates.forEach(function(u) {
+    sheet.getRange(u.row, 1, 1, u.values.length).setValues([u.values]);
+  });
+
+  // 新增未存在的帳號
+  if (newRows.length > 0) {
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
+    Logger.log('✅ 新增正式人員名冊：' + newRows.length + ' 筆');
+  }
+  Logger.log('✅ 完成 upsert 正式人員名冊，更新 ' + updates.length + ' 筆，新增 ' + newRows.length + ' 筆');
 
   try {
     SpreadsheetApp.getUi().alert('✅ 正式人員名冊建立完成！\n共 ' + accounts.length + ' 筆資料。\n預設密碼均為：test1234');
