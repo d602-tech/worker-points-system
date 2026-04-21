@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 // ── 狀態碼工具 ───────────────────────────────────────────────
 // 格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠
@@ -257,7 +258,8 @@ export default function AdminAttendance() {
   const workerName = workers.find(w => w.userId === selectedWorker)?.name || "";
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="space-y-6 print:space-y-4 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">差勤管理</h1>

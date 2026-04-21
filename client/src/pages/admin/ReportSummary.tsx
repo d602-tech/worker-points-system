@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { exportWorkSummaryReport } from "@/lib/exportExcel";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format, startOfYear, eachMonthOfInterval } from "date-fns";
 
 interface WorkerRow {
@@ -41,7 +42,10 @@ export default function ReportSummary() {
         const { workers, snapshots: ss } = res.data;
         setSnapshots(ss || []);
         
-        const mapped = (workers || []).map((w: any) => {
+        // 僅篩選協助員 (worker)
+        const filteredWorkers = (workers || []).filter((w: any) => String(w["角色"]) === "worker");
+
+        const mapped = filteredWorkers.map((w: any) => {
           const wId = String(w["人員編號"] || "");
           const monthly: Record<string, number> = {};
           // 如果有跨月份的快照資料，可以在此處展開
@@ -97,7 +101,8 @@ export default function ReportSummary() {
   const grandTotal = monthData.reduce((sum, w) => sum + w.points, 0);
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="space-y-6 print:space-y-4 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">工作量彙總表</h1>

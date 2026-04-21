@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 interface PointDef {
   code: string;
@@ -33,32 +34,36 @@ export default function AdminConfig() {
   const [gasStatus, setGasStatus] = useState<"idle" | "ok" | "error">("idle");
   const [activeTab, setActiveTab] = useState<"connection" | "points" | "system">("connection");
   const [pointDefs, setPointDefs] = useState<PointDef[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // 1. 載入連線資訊與點數定義
   useEffect(() => {
     if (!user?.email) return;
+    setIsLoading(true);
     
     // 取得點數定義
-    gasGet<any[]>("getPointDefs", { callerEmail: user.email }).then(res => {
+    const p1 = gasGet<any[]>("getPointDefs", { callerEmail: user.email }).then(res => {
       if (res.success && Array.isArray(res.data)) {
         setPointDefs(res.data.map(d => ({
-          code: String(d["代碼"] || ""),
+          code: String(d["項目編號"] || ""),
           category: String(d["類別"] || ""),
-          name: String(d["項目名稱"] || ""),
-          points: Number(d["基準點數"] || 0),
-          unit: String(d["單位"] || "次"),
+          name: String(d["工作項目名稱"] || ""),
+          points: Number(d["單位點數"] || 0),
+          unit: String(d["計量單位"] || "次"),
         })));
       }
     });
 
     // 取得系統設定
-    gasGet<any>("getSystemConfig", { callerEmail: user.email }).then(res => {
+    const p2 = gasGet<any>("getSystemConfig", { callerEmail: user.email }).then(res => {
       if (res.success && res.data) {
         setSheetId(res.data.sheetId || sheetId);
         setDriveFolderId(res.data.driveFolderId || driveFolderId);
         setPointRate(String(res.data.pointRate || pointRate));
       }
     });
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false));
   }, [user?.email]);
 
   const testConnection = async () => {
@@ -81,7 +86,8 @@ export default function AdminConfig() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">系統設定</h1>

@@ -1,28 +1,93 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { exportLeaveStatReport } from "@/lib/exportExcel";
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet } from "@/lib/gasApi";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { format, startOfYear, eachMonthOfInterval } from "date-fns";
 
-const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
-const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "曠職"];
+interface WorkerLeave {
+  id: string;
+  name: string;
+  type: string;
+  leave: Record<string, number>;
+}
 
-const MOCK_DATA = [
-  { id: "W001", name: "王小明", type: "一般工地協助員",
-    leave: { "上班": 18, "特休": 2, "病假": 1, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
-  { id: "W002", name: "李大華", type: "離島工地協助員",
-    leave: { "上班": 20, "特休": 0, "病假": 0, "事假": 1, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
-  { id: "W003", name: "陳美玲", type: "一般工地協助員",
-    leave: { "上班": 19, "特休": 1, "病假": 0, "事假": 0, "婚假": 0, "喪假": 0, "公假": 1, "代理": 0, "曠職": 0 } },
-  { id: "W004", name: "張志偉", type: "職安業務兼管理員",
-    leave: { "上班": 15, "特休": 3, "病假": 2, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 } },
-];
+const CURRENT_YEAR_MONTHS = eachMonthOfInterval({
+  start: startOfYear(new Date()),
+  end: new Date()
+}).map(d => format(d, "yyyy-MM"));
 
 export default function ReportLeave() {
-  const [selectedMonth, setSelectedMonth] = useState("2026-04");
+  const { user } = useGasAuthContext();
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [reportData, setReportData] = useState<WorkerLeave[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!user?.email) return;
+    setIsLoading(true);
+    try {
+      const res = await gasGet<any>("getReport", {
+        callerEmail: user.email,
+        type: "4",
+        yearMonth: selectedMonth
+      });
+      if (res.success && res.data) {
+        const { workers, snapshots } = res.data;
+        
+        // 僅篩選協助員 (worker)
+        const filteredWorkers = (workers || []).filter((w: any) => String(w["角色"]) === "worker");
+
+        const mapped = filteredWorkers.map((w: any) => {
+          const wId = String(w["人員編號"] || "");
+          const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
+          
+          // 解析出勤狀態（目前 snapshot 只有 A_TOTAL 等，出勤詳細可能在後端需要對接）
+          // 這裡假設後端會回傳出勤統計，或者我們從快照讀取
+          // 根據 Code.gs 1397 行，snapshot 有 WORK_DAYS 和 LEAVE_HOURS
+          const workDays = Number(snap?.["出勤天數"] || 0);
+          const leaveHours = Number(snap?.["特休時數"] || 0);
+
+          return {
+            id: wId,
+            name: String(w["姓名"] || ""),
+            type: String(w["職務類型"] || ""),
+            leave: { 
+              "上班": workDays, 
+              "特休": leaveHours / 8, // 假設 8 小時為一天
+              "病假": 0, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 
+            }
+          };
+        });
+        setReportData(mapped);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, selectedMonth]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "曠職"];
+
+  const handleExport = () => {
+    exportLeaveStatReport(
+      reportData.map(w => ({
+        workerId: w.id, workerName: w.name, department: w.type, onboardDate: "-",
+        expDays: 0, annualLeaveEntitled: 0, annualLeaveUsed: w.leave['特休'],
+        annualLeaveRemaining: 0, workDays: w.leave['上班'],
+        totalLeaveDays: Object.entries(w.leave).filter(([k]) => k !== '上班').reduce((s, [,v]) => s + v, 0),
+      })),
+      selectedMonth
+    );
+  };
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="space-y-6 print:space-y-4 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">出勤暨特休統計表</h1>
@@ -32,22 +97,14 @@ export default function ReportLeave() {
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
             <Printer className="w-4 h-4" />列印
           </Button>
-          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={() => exportLeaveStatReport(
-            MOCK_DATA.map(w => ({
-              workerId: w.id, workerName: w.name, department: w.type, onboardDate: '2024-01-01',
-              expDays: 365, annualLeaveEntitled: 7, annualLeaveUsed: w.leave['特休'],
-              annualLeaveRemaining: 7 - w.leave['特休'], workDays: w.leave['上班'],
-              totalLeaveDays: Object.entries(w.leave).filter(([k]) => k !== '上班').reduce((s, [,v]) => s + v, 0),
-            })),
-            selectedMonth
-          )}>
+          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={handleExport}>
             <Download className="w-4 h-4" />匯出 xlsx
           </Button>
         </div>
       </div>
 
       <div className="flex gap-2 print:hidden">
-        {MONTHS.map(m => (
+        {CURRENT_YEAR_MONTHS.map(m => (
           <button key={m} onClick={() => setSelectedMonth(m)}
             className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
               selectedMonth === m ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
@@ -72,7 +129,7 @@ export default function ReportLeave() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_DATA.map((w, idx) => {
+              {reportData.map((w, idx) => {
                 const workDays = w.leave["上班"];
                 const totalDays = Object.values(w.leave).reduce((a, b) => a + b, 0);
                 return (
@@ -96,11 +153,11 @@ export default function ReportLeave() {
                 <td colSpan={3} className="px-4 py-3 text-sm font-semibold text-foreground">合計</td>
                 {LEAVE_TYPES.map(lt => (
                   <td key={lt} className="px-4 py-3 text-center text-sm font-bold text-foreground">
-                    {MOCK_DATA.reduce((sum, w) => sum + (w.leave[lt as keyof typeof w.leave] || 0), 0)}
+                    {reportData.reduce((sum, w) => sum + (w.leave[lt as keyof typeof w.leave] || 0), 0)}
                   </td>
                 ))}
                 <td className="px-4 py-3 text-center text-sm font-bold text-foreground">
-                  {MOCK_DATA.reduce((sum, w) => sum + Object.values(w.leave).reduce((a, b) => a + b, 0), 0)}
+                  {reportData.reduce((sum, w) => sum + Object.values(w.leave).reduce((a, b) => a + b, 0), 0)}
                 </td>
               </tr>
             </tbody>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { exportServiceFeeReport, toChineseAmount } from "@/lib/exportExcel";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
 
 const MONTHS_LIST = ["2026-01", "2026-02", "2026-03", "2026-04"];
@@ -37,7 +38,11 @@ export default function ReportFee() {
       });
       if (res.success && res.data) {
         const { workers, snapshots } = res.data;
-        const mapped = (workers || []).map((w: any) => {
+        
+        // 僅篩選協助員 (worker)
+        const filteredWorkers = (workers || []).filter((w: any) => String(w["角色"]) === "worker");
+
+        const mapped = filteredWorkers.map((w: any) => {
           const wId = String(w["人員編號"] || "");
           const monthly: Record<string, number> = {};
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
@@ -72,7 +77,8 @@ export default function ReportFee() {
   const grandFee = monthData.reduce((s, w) => s + w.fee, 0);
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="space-y-6 print:space-y-4 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">服務費統計表</h1>

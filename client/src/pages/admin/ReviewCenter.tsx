@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet, gasPost } from "@/lib/gasApi";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
 
 // 審核狀態（與 Code.gs actionToStatus 對應）
@@ -125,7 +126,8 @@ export default function ReviewCenter() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">審核中心</h1>
