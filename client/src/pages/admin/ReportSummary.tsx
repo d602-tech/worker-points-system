@@ -1,34 +1,85 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { exportWorkSummaryReport } from "@/lib/exportExcel";
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet } from "@/lib/gasApi";
+import { format, startOfYear, eachMonthOfInterval } from "date-fns";
 
-const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
+interface WorkerRow {
+  id: string;
+  name: string;
+  type: string;
+  area: string;
+  monthly: Record<string, number>;
+}
 
-const MOCK_DATA = [
-  { id: "W001", name: "王小明", type: "一般工地協助員", area: "大潭",
-    monthly: { "2026-01": 45200, "2026-02": 38600, "2026-03": 52100, "2026-04": 21000 } },
-  { id: "W002", name: "李大華", type: "離島工地協助員", area: "大潭",
-    monthly: { "2026-01": 38000, "2026-02": 41200, "2026-03": 39800, "2026-04": 18500 } },
-  { id: "W003", name: "陳美玲", type: "一般工地協助員", area: "大潭",
-    monthly: { "2026-01": 51000, "2026-02": 47300, "2026-03": 55600, "2026-04": 24200 } },
-  { id: "W004", name: "張志偉", type: "環保業務人員", area: "處本部",
-    monthly: { "2026-01": 22000, "2026-02": 19500, "2026-03": 23400, "2026-04": 9800 } },
-];
+// 動態產生年度月份
+const CURRENT_YEAR_MONTHS = eachMonthOfInterval({
+  start: startOfYear(new Date()),
+  end: new Date()
+}).map(d => format(d, "yyyy-MM"));
 
 export default function ReportSummary() {
-  const [selectedMonth, setSelectedMonth] = useState("2026-04");
+  const { user } = useGasAuthContext();
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [reportData, setReportData] = useState<WorkerRow[]>([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!user?.email) return;
+    setIsLoading(true);
+    try {
+      const res = await gasGet<any>("getReport", {
+        callerEmail: user.email,
+        type: "3",
+        yearMonth: selectedMonth
+      });
+      if (res.success && res.data) {
+        const { workers, snapshots: ss } = res.data;
+        setSnapshots(ss || []);
+        
+        const mapped = (workers || []).map((w: any) => {
+          const wId = String(w["人員編號"] || "");
+          const monthly: Record<string, number> = {};
+          // 如果有跨月份的快照資料，可以在此處展開
+          const snap = (ss || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
+          monthly[selectedMonth] = Number(snap?.["本月總計"] || 0);
+
+          return {
+            id: wId,
+            name: String(w["姓名"] || ""),
+            type: String(w["職務類型"] || ""),
+            area: String(w["服務區域"] || ""),
+            monthly
+          };
+        });
+        setReportData(mapped);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, selectedMonth]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleExport = () => {
     exportWorkSummaryReport(
-      monthData.map(w => ({
-        workerId: w.id, workerName: w.name, workerType: w.type, area: w.area,
-        catA: Math.round(w.points * 0.3), catB: Math.round(w.points * 0.2),
-        catC: Math.round(w.points * 0.2), catD: Math.round(w.points * 0.1),
-        catS: Math.round(w.points * 0.1), catP: Math.round(w.points * 0.1),
-        total: w.points,
-      })),
+      monthData.map(w => {
+        const snap = snapshots.find(s => s["人員編號"] === w.id && s["年月"] === selectedMonth);
+        return {
+          workerId: w.id, workerName: w.name, workerType: w.type, area: w.area,
+          catA: Number(snap?.["A類小計"] || 0),
+          catB: Number(snap?.["B類小計"] || 0),
+          catC: Number(snap?.["C類金額"] || 0),
+          catD: Number(snap?.["D類小計"] || 0),
+          catS: Number(snap?.["S類金額"] || 0),
+          catP: Number(snap?.["P類扣款"] || 0),
+          total: w.points,
+        };
+      }),
       selectedMonth
     );
   };
@@ -37,9 +88,9 @@ export default function ReportSummary() {
     window.print();
   };
 
-  const monthData = MOCK_DATA.map(w => ({
+  const monthData = reportData.map(w => ({
     ...w,
-    points: w.monthly[selectedMonth as keyof typeof w.monthly] || 0,
+    points: w.monthly[selectedMonth] || 0,
     total: Object.values(w.monthly).reduce((a, b) => a + b, 0),
   }));
 
@@ -64,7 +115,7 @@ export default function ReportSummary() {
 
       {/* Month selector */}
       <div className="flex gap-2 print:hidden">
-        {MONTHS.map(m => (
+        {CURRENT_YEAR_MONTHS.map(m => (
           <button key={m} onClick={() => setSelectedMonth(m)}
             className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
               selectedMonth === m ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
@@ -85,7 +136,7 @@ export default function ReportSummary() {
           <table className="w-full text-sm report-table">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
-                {["工號", "姓名", "協助員類型", "區域", ...MONTHS, "合計"].map(h => (
+                {["工號", "姓名", "協助員類型", "區域", ...CURRENT_YEAR_MONTHS, "合計"].map(h => (
                   <th key={h} className={cn(
                     "text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap",
                     h === selectedMonth && "bg-blue-50 text-blue-700"
@@ -100,12 +151,12 @@ export default function ReportSummary() {
                   <td className="px-4 py-3 font-medium text-foreground">{w.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{w.type}</td>
                   <td className="px-4 py-3 text-muted-foreground">{w.area}</td>
-                  {MONTHS.map(m => (
+                  {CURRENT_YEAR_MONTHS.map(m => (
                     <td key={m} className={cn(
                       "px-4 py-3 text-right font-medium",
                       m === selectedMonth ? "bg-blue-50 text-blue-700 font-semibold" : "text-foreground"
                     )}>
-                      {(w.monthly[m as keyof typeof w.monthly] || 0).toLocaleString()}
+                      {(w.monthly[m] || 0).toLocaleString()}
                     </td>
                   ))}
                   <td className="px-4 py-3 text-right font-bold text-foreground">{w.total.toLocaleString()}</td>
@@ -113,16 +164,16 @@ export default function ReportSummary() {
               ))}
               <tr className="border-t-2 border-border bg-muted/20 font-semibold">
                 <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-foreground">合計</td>
-                {MONTHS.map(m => (
+                {CURRENT_YEAR_MONTHS.map(m => (
                   <td key={m} className={cn(
                     "px-4 py-3 text-right text-sm",
                     m === selectedMonth ? "bg-blue-100 text-blue-800 font-bold" : "text-foreground"
                   )}>
-                    {MOCK_DATA.reduce((sum, w) => sum + (w.monthly[m as keyof typeof w.monthly] || 0), 0).toLocaleString()}
+                    {reportData.reduce((sum, w) => sum + (w.monthly[m] || 0), 0).toLocaleString()}
                   </td>
                 ))}
                 <td className="px-4 py-3 text-right text-sm font-bold text-foreground">
-                  {MOCK_DATA.reduce((sum, w) => sum + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0).toLocaleString()}
+                  {reportData.reduce((sum, w) => sum + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0).toLocaleString()}
                 </td>
               </tr>
             </tbody>

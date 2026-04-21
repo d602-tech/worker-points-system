@@ -1,30 +1,67 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Printer, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { exportServiceFeeReport, toChineseAmount } from "@/lib/exportExcel";
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet } from "@/lib/gasApi";
+import { format } from "date-fns";
 
-const MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04"];
+const MONTHS_LIST = ["2026-01", "2026-02", "2026-03", "2026-04"];
 
 // Point unit price: 1 point = 1 NTD
 const POINT_RATE = 1;
 
-const MOCK_DATA = [
-  { id: "W001", name: "王小明", type: "一般工地協助員", area: "大潭",
-    monthly: { "2026-01": 45200, "2026-02": 38600, "2026-03": 52100, "2026-04": 21000 } },
-  { id: "W002", name: "李大華", type: "離島工地協助員", area: "大潭",
-    monthly: { "2026-01": 38000, "2026-02": 41200, "2026-03": 39800, "2026-04": 18500 } },
-  { id: "W003", name: "陳美玲", type: "一般工地協助員", area: "大潭",
-    monthly: { "2026-01": 51000, "2026-02": 47300, "2026-03": 55600, "2026-04": 24200 } },
-  { id: "W004", name: "張志偉", type: "職安業務兼管理員", area: "處本部",
-    monthly: { "2026-01": 22000, "2026-02": 19500, "2026-03": 23400, "2026-04": 9800 } },
-];
+interface WorkerData {
+  id: string;
+  name: string;
+  type: string;
+  area: string;
+  monthly: Record<string, number>;
+}
 
 export default function ReportFee() {
-  const [selectedMonth, setSelectedMonth] = useState("2026-04");
+  const { user } = useGasAuthContext();
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [reportData, setReportData] = useState<WorkerData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const monthData = MOCK_DATA.map(w => {
-    const pts = w.monthly[selectedMonth as keyof typeof w.monthly] || 0;
+  const loadData = useCallback(async () => {
+    if (!user?.email) return;
+    setIsLoading(true);
+    try {
+      const res = await gasGet<any>("getReport", {
+        callerEmail: user.email,
+        type: "5",
+        yearMonth: selectedMonth
+      });
+      if (res.success && res.data) {
+        const { workers, snapshots } = res.data;
+        const mapped = (workers || []).map((w: any) => {
+          const wId = String(w["人員編號"] || "");
+          const monthly: Record<string, number> = {};
+          const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
+          monthly[selectedMonth] = Number(snap?.["本月總計"] || 0);
+
+          return {
+            id: wId,
+            name: String(w["姓名"] || ""),
+            type: String(w["職務類型"] || ""),
+            area: String(w["服務區域"] || ""),
+            monthly
+          };
+        });
+        setReportData(mapped);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, selectedMonth]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const monthData = reportData.map(w => {
+    const pts = w.monthly[selectedMonth] || 0;
     const fee = Math.round(pts * POINT_RATE);
     const totalPts = Object.values(w.monthly).reduce((a, b) => a + b, 0);
     const totalFee = Math.round(totalPts * POINT_RATE);
@@ -59,8 +96,8 @@ export default function ReportFee() {
         {[
           { label: "本月總計", value: grandPts.toLocaleString(), unit: "元", color: "text-blue-700 bg-blue-50" },
           { label: "本月服務費", value: grandFee.toLocaleString(), unit: "元", color: "text-emerald-700 bg-emerald-50" },
-          { label: "協助員人數", value: MOCK_DATA.length.toString(), unit: "人", color: "text-purple-700 bg-purple-50" },
-          { label: "人均金額", value: Math.round(grandPts / MOCK_DATA.length).toLocaleString(), unit: "元", color: "text-amber-700 bg-amber-50" },
+          { label: "協助員人數", value: reportData.length.toString(), unit: "人", color: "text-purple-700 bg-purple-50" },
+          { label: "人均金額", value: reportData.length > 0 ? Math.round(grandPts / reportData.length).toLocaleString() : "0", unit: "元", color: "text-amber-700 bg-amber-50" },
         ].map(({ label, value, unit, color }) => (
           <div key={label} className={cn("rounded-2xl p-4", color)}>
             <div className="text-2xl font-bold">{value} <span className="text-sm font-normal">{unit}</span></div>
@@ -70,7 +107,7 @@ export default function ReportFee() {
       </div>
 
       <div className="flex gap-2 print:hidden">
-        {MONTHS.map(m => (
+        {MONTHS_LIST.map(m => (
           <button key={m} onClick={() => setSelectedMonth(m)}
             className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
               selectedMonth === m ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
@@ -112,10 +149,10 @@ export default function ReportFee() {
                 <td className="px-4 py-3 text-right text-sm font-bold text-blue-700">{grandPts.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right text-sm font-bold text-emerald-700">{grandFee.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right text-sm font-bold text-foreground">
-                  {MOCK_DATA.reduce((s, w) => s + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0).toLocaleString()}
+                  {reportData.reduce((s, w) => s + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0).toLocaleString()}
                 </td>
                 <td className="px-4 py-3 text-right text-sm font-bold text-foreground">
-                  {Math.round(MOCK_DATA.reduce((s, w) => s + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0) * POINT_RATE).toLocaleString()}
+                  {Math.round(reportData.reduce((s, w) => s + Object.values(w.monthly).reduce((a, b) => a + b, 0), 0) * POINT_RATE).toLocaleString()}
                 </td>
               </tr>
             </tbody>

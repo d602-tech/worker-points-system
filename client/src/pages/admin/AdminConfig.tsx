@@ -1,22 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Save, RefreshCw, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet } from "@/lib/gasApi";
 
-const POINT_DEFS = [
-  { code: "A1", category: "A", name: "工地清潔與整理", points: 1200, unit: "次" },
-  { code: "A2", category: "A", name: "工具整理與歸還", points: 800, unit: "次" },
-  { code: "A3", category: "A", name: "材料搜選與進場驗收", points: 1500, unit: "次" },
-  { code: "B1", category: "B", name: "安全訓練參與", points: 3000, unit: "次" },
-  { code: "B2", category: "B", name: "安全設備檢查", points: 2000, unit: "次" },
-  { code: "C1", category: "C", name: "機電設備維護協助", points: 2500, unit: "次" },
-  { code: "C2", category: "C", name: "電氣配線協助", points: 3500, unit: "次" },
-  { code: "D1", category: "D", name: "行政文件處理", points: 1000, unit: "次" },
-  { code: "S1", category: "S", name: "特殊貢獻加分", points: 5000, unit: "項" },
-  { code: "P1", category: "P", name: "專案協助加分", points: 4000, unit: "項" },
-];
+interface PointDef {
+  code: string;
+  category: string;
+  name: string;
+  points: number;
+  unit: string;
+}
 
 const CAT_COLORS: Record<string, string> = {
   A: "bg-blue-100 text-blue-700 border-blue-200",
@@ -28,12 +25,41 @@ const CAT_COLORS: Record<string, string> = {
 };
 
 export default function AdminConfig() {
-  const [gasUrl, setGasUrl] = useState("");
-  const [sheetId, setSheetId] = useState("");
-  const [driveFolderId, setDriveFolderId] = useState("");
-  const [pointRate, setPointRate] = useState("0.01");
+  const { user } = useGasAuthContext();
+  const [gasUrl, setGasUrl] = useState(localStorage.getItem("gas_url") || "");
+  const [sheetId, setSheetId] = useState(localStorage.getItem("sheet_id") || "");
+  const [driveFolderId, setDriveFolderId] = useState(localStorage.getItem("drive_folder_id") || "");
+  const [pointRate, setPointRate] = useState(localStorage.getItem("point_rate") || "1.0");
   const [gasStatus, setGasStatus] = useState<"idle" | "ok" | "error">("idle");
   const [activeTab, setActiveTab] = useState<"connection" | "points" | "system">("connection");
+  const [pointDefs, setPointDefs] = useState<PointDef[]>([]);
+
+  // 1. 載入連線資訊與點數定義
+  useEffect(() => {
+    if (!user?.email) return;
+    
+    // 取得點數定義
+    gasGet<any[]>("getPointDefs", { callerEmail: user.email }).then(res => {
+      if (res.success && Array.isArray(res.data)) {
+        setPointDefs(res.data.map(d => ({
+          code: String(d["代碼"] || ""),
+          category: String(d["類別"] || ""),
+          name: String(d["項目名稱"] || ""),
+          points: Number(d["基準點數"] || 0),
+          unit: String(d["單位"] || "次"),
+        })));
+      }
+    });
+
+    // 取得系統設定
+    gasGet<any>("getSystemConfig", { callerEmail: user.email }).then(res => {
+      if (res.success && res.data) {
+        setSheetId(res.data.sheetId || sheetId);
+        setDriveFolderId(res.data.driveFolderId || driveFolderId);
+        setPointRate(String(res.data.pointRate || pointRate));
+      }
+    });
+  }, [user?.email]);
 
   const testConnection = async () => {
     if (!gasUrl) { toast.error("請先輸入 GAS Web App URL"); return; }
@@ -141,27 +167,36 @@ export default function AdminConfig() {
         <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
           <div className="p-4 border-b border-border/40 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">點數定義表</h3>
-            <span className="text-xs text-muted-foreground">共 {POINT_DEFS.length} 項定義</span>
+            <span className="text-xs text-muted-foreground">共 {pointDefs.length} 項定義</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/40 bg-muted/20">
-                  {["代碼", "類別", "項目名稱", "點數", "單位"].map(h => (
-                    <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">{h}</th>
-                  ))}
+                <tr className="border-b border-border text-xs font-semibold text-muted-foreground uppercase text-left">
+                  <th className="px-4 py-3">類別</th>
+                  <th className="px-4 py-3">代碼</th>
+                  <th className="px-4 py-3">項目名稱</th>
+                  <th className="px-4 py-3 text-right">基準點數</th>
+                  <th className="px-4 py-3">單位</th>
                 </tr>
               </thead>
               <tbody>
-                {POINT_DEFS.map((d, idx) => (
-                  <tr key={d.code} className={cn("border-b border-border/20 hover:bg-muted/10", idx % 2 === 0 ? "" : "bg-muted/5")}>
-                    <td className="px-4 py-2.5 font-mono text-xs font-bold text-foreground">{d.code}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border", CAT_COLORS[d.category])}>{d.category}</span>
+                {pointDefs.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">載入點數定義中...</td>
+                  </tr>
+                )}
+                {pointDefs.map(p => (
+                  <tr key={p.code} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3">
+                      <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border", CAT_COLORS[p.category])}>
+                        {p.category}
+                      </span>
                     </td>
-                    <td className="px-4 py-2.5 text-foreground">{d.name}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-blue-700">{d.points.toLocaleString()}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{d.unit}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-blue-700">{p.code}</td>
+                    <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
+                    <td className="px-4 py-3 text-right font-black text-blue-700">{p.points.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.unit}</td>
                   </tr>
                 ))}
               </tbody>

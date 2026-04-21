@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CheckCircle2, XCircle, AlertTriangle, Eye, ChevronDown, ChevronUp, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet, gasPost } from "@/lib/gasApi";
+import { format } from "date-fns";
 
 // 審核狀態（與 Code.gs actionToStatus 對應）
 type ReviewStatus = "submitted" | "dept_approved" | "billing_confirmed" | "billed" | "rejected";
@@ -17,12 +20,22 @@ interface ReviewItem {
   files: number; note: string; rejectionReason?: string;
 }
 
-const MOCK_ITEMS: ReviewItem[] = [
-  { id: "R001", workerId: "W001", workerName: "王小明", yearMonth: "2026-04", category: "A1", taskName: "危害告知與高風險作業管制與監督", points: 1200, status: "submitted", files: 2, note: "已完成全區確認" },
-  { id: "R002", workerId: "W002", workerName: "李大華", yearMonth: "2026-04", category: "B1", taskName: "安全衛生教育訓練出席", points: 3000, status: "dept_approved", files: 3, note: "已參加全日訓練" },
-  { id: "R003", workerId: "W003", workerName: "陳美玲", yearMonth: "2026-04", category: "A1", taskName: "材料進場驗收協助作業", points: 1500, status: "rejected", files: 0, note: "無佐證", rejectionReason: "缺少進場單佐證，請補傳相關文件" },
-  { id: "R004", workerId: "W001", workerName: "王小明", yearMonth: "2026-03", category: "D1", taskName: "法規鑑別與守規性之評估作業程序書作業", points: 2500, status: "billing_confirmed", files: 1, note: "" },
-];
+// 將 GAS 原始資料對應到 ReviewItem 介面
+function mapRowToReviewItem(row: any): ReviewItem {
+  return {
+    id: String(row["紀錄編號"] || row["點數代碼"] || row["itemId"] || ""),
+    workerId: String(row["人員編號"] || row["userId"] || ""),
+    workerName: String(row["姓名"] || ""),
+    yearMonth: String(row["年月"] || row["yearMonth"] || ""),
+    category: String(row["類別"] || ""),
+    taskName: String(row["工作項目名稱"] || row["itemName"] || ""),
+    points: Number(row["點數"] || 0),
+    status: String(row["狀態"] || "submitted") as ReviewStatus,
+    files: String(row["佐證檔案編號"] || "").split(',').filter(Boolean).length,
+    note: String(row["備註"] || ""),
+    rejectionReason: String(row["退回原因"] || ""),
+  };
+}
 
 const STATUS_CONFIG: Record<ReviewStatus, { label: string; color: string; icon: typeof AlertTriangle }> = {
   submitted:         { label: "待初審",   color: "bg-amber-50 text-amber-700 border-amber-200",     icon: AlertTriangle },
@@ -60,31 +73,55 @@ const FILTER_OPTIONS: Array<{ value: ReviewStatus | "all"; label: string }> = [
 ];
 
 export default function ReviewCenter() {
-  const [items, setItems] = useState<ReviewItem[]>(MOCK_ITEMS);
+  const { user } = useGasAuthContext();
+  const [items, setItems] = useState<ReviewItem[]>([]);
   const [filterStatus, setFilterStatus] = useState<ReviewStatus | "all">("submitted");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [rejectDialog, setRejectDialog] = useState<{ id: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
+  const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // 1. 載入內容
+  const loadItems = useCallback(async () => {
+    if (!user?.email) return;
+    setIsLoading(true);
+    try {
+      const res = await gasGet<any[]>("getReviewList", {
+        callerEmail: user.email,
+        yearMonth: format(new Date(), "yyyy-MM"), // 預設看當月
+      });
+      if (res.success && Array.isArray(res.data)) {
+        setItems(res.data.map(mapRowToReviewItem));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email]);
+
+  useEffect(() => { loadItems(); }, [loadItems]);
 
   const filtered = filterStatus === "all" ? items : items.filter(i => i.status === filterStatus);
   const pendingCount = items.filter(i => i.status === "submitted" || i.status === "dept_approved").length;
 
-  const applyAction = (id: string, action: ReviewAction, reason?: string) => {
-    const nextStatus: ReviewStatus =
-      action === "初審通過" ? "dept_approved" :
-      action === "廠商確認" ? "billing_confirmed" :
-      action === "已請款"   ? "billed" :
-      "rejected";
+  const applyAction = async (id: string, action: ReviewAction, workerId: string, yearMonth: string, reason?: string) => {
+    if (!user?.email) return;
+    
+    setIsLoading(true);
+    const res = await gasPost("reviewMonthlyReport", {
+      callerEmail: user.email,
+      workerId: workerId,
+      yearMonth: yearMonth,
+      action2: action,
+      reason: reason || ""
+    });
 
-    setItems(prev => prev.map(i =>
-      i.id === id ? { ...i, status: nextStatus, rejectionReason: reason || i.rejectionReason } : i
-    ));
-
-    if (action === "退回修改" || action === "廠商退回") {
-      toast.error(`已退回（${action}）`);
-    } else {
+    if (res.success) {
       toast.success(`操作成功：${action}`);
+      loadItems();
+    } else {
+      toast.error(`操作失敗：${res.error}`);
     }
     setRejectDialog(null);
+    setIsLoading(false);
   };
 
   return (
@@ -172,7 +209,13 @@ export default function ReviewCenter() {
                         return (
                           <Button key={action} size="sm" variant="outline"
                             className="border-red-200 text-red-600 hover:bg-red-50 h-8 px-3 text-xs gap-1"
-                            onClick={() => setRejectDialog({ id: item.id, action: action as "退回修改" | "廠商退回", reason: "" })}>
+                            onClick={() => setRejectDialog({ 
+                              id: item.id, 
+                              workerId: item.workerId, 
+                              yearMonth: item.yearMonth,
+                              action: action as "退回修改" | "廠商退回", 
+                              reason: "" 
+                            })}>
                             <XCircle className="w-3.5 h-3.5" />{acfg.label}
                           </Button>
                         );
@@ -180,7 +223,7 @@ export default function ReviewCenter() {
                       return (
                         <Button key={action} size="sm"
                           className={cn("h-8 px-3 text-xs gap-1", acfg.color)}
-                          onClick={() => applyAction(item.id, action)}>
+                          onClick={() => applyAction(item.id, action, item.workerId, item.yearMonth)}>
                           <CheckCircle2 className="w-3.5 h-3.5" />{acfg.label}
                         </Button>
                       );
@@ -228,8 +271,8 @@ export default function ReviewCenter() {
             <div className="flex gap-3 mt-4">
               <Button variant="outline" className="flex-1" onClick={() => setRejectDialog(null)}>取消</Button>
               <Button className="flex-1 bg-red-600 hover:bg-red-700"
-                onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.reason)}
-                disabled={!rejectDialog.reason.trim()}>
+                onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.workerId, rejectDialog.yearMonth, rejectDialog.reason)}
+                disabled={!rejectDialog.reason.trim() || isLoading}>
                 確認退回
               </Button>
             </div>

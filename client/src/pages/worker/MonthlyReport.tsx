@@ -619,13 +619,14 @@ export default function MonthlyReport() {
                       {PERF_LEVELS.map(({ value, label, points, color }) => (
                         <button
                           key={value}
-                          disabled={locked}
+                          disabled={locked || user?.role === "worker"}
                           onClick={() => setPerfLevel(item.itemId, item.perfLevel === value ? "" : value)}
                           className={cn(
                             "flex-1 py-3.5 rounded-[20px] border-2 transition-all flex flex-col items-center justify-center gap-0.5 active:scale-95",
                             item.perfLevel === value
                               ? color
                               : "border-slate-50 bg-slate-50 text-slate-400 opacity-60",
+                            user?.role === "worker" && "cursor-default",
                           )}
                         >
                           <span className="text-base font-black">{label}</span>
@@ -681,7 +682,7 @@ export default function MonthlyReport() {
                   </div>
                 )}
 
-                {/* B1/B2 佐證上傳區 */}
+                {/* B1/B2 佐證上傳區 (C 類隱藏) */}
                 {(item.category === "B1" || item.category === "B2") && !locked && (
                   <div className="mt-4 pt-4 border-t border-border/40">
                     <div className="flex items-center justify-between mb-2.5">

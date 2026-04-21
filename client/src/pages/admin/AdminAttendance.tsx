@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight, X, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 // ── 狀態碼工具 ───────────────────────────────────────────────
@@ -71,19 +71,13 @@ interface AttRecord {
   pmStatus: string;
 }
 
-const MOCK_WORKERS = [
-  { userId: "W001", name: "王小明" },
-  { userId: "W002", name: "李大華" },
-  { userId: "W003", name: "陳美玲" },
-];
+import { useGasAuthContext } from "@/lib/useGasAuth";
+import { gasGet, gasPost } from "@/lib/gasApi";
 
-const MOCK_RECORDS: Record<string, AttRecord> = {
-  "2026-04-01_W001": { userId: "W001", date: "2026-04-01", amStatus: "／", pmStatus: "／" },
-  "2026-04-02_W001": { userId: "W001", date: "2026-04-02", amStatus: "／", pmStatus: "／" },
-  "2026-04-03_W001": { userId: "W001", date: "2026-04-03", amStatus: "特4", pmStatus: "特4" },
-  "2026-04-07_W002": { userId: "W002", date: "2026-04-07", amStatus: "／", pmStatus: "病4" },
-  "2026-04-08_W003": { userId: "W003", date: "2026-04-08", amStatus: "代_張主任", pmStatus: "／" },
-};
+interface Worker {
+  userId: string;
+  name: string;
+}
 
 // ── 編輯 Dialog 狀態 ──────────────────────────────────────────
 interface EditState {
@@ -149,10 +143,60 @@ function HalfEditor({
 
 // ── 主頁面 ───────────────────────────────────────────────────
 export default function AdminAttendance() {
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 3, 1));
-  const [selectedWorker, setSelectedWorker] = useState("W001");
+  const { user } = useGasAuthContext();
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedWorker, setSelectedWorker] = useState("");
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [records, setRecords] = useState<Record<string, AttRecord>>({});
   const [editState, setEditState] = useState<EditState | null>(null);
-  const [records, setRecords] = useState(MOCK_RECORDS);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // 1. 載入人員名單
+  useEffect(() => {
+    if (!user?.email) return;
+    gasGet<any[]>("getWorkers", { callerEmail: user.email }).then(res => {
+      if (res.success && Array.isArray(res.data)) {
+        const list = res.data.map(w => ({
+          userId: String(w["人員編號"] || ""),
+          name: String(w["姓名"] || ""),
+        })).filter(w => w.userId);
+        setWorkers(list);
+        if (list.length > 0 && !selectedWorker) setSelectedWorker(list[0].userId);
+      }
+    });
+  }, [user?.email]);
+
+  // 2. 載入差勤紀錄
+  const loadRecords = useCallback(async () => {
+    if (!user?.email || !selectedWorker) return;
+    setIsLoading(true);
+    const monthStr = format(currentMonth, "yyyy-MM");
+    try {
+      const res = await gasGet<any[]>("getAttendance", {
+        callerEmail: user.email,
+        workerId: selectedWorker,
+        yearMonth: monthStr
+      });
+      if (res.success && Array.isArray(res.data)) {
+        const map: Record<string, AttRecord> = {};
+        res.data.forEach(r => {
+          const date = String(r["日期"] || "");
+          const dStr = date.includes("T") ? date.split("T")[0] : date;
+          map[`${dStr}_${selectedWorker}`] = {
+            userId: selectedWorker,
+            date: dStr,
+            amStatus: String(r["上午狀態"] || "／"),
+            pmStatus: String(r["下午狀態"] || "／"),
+          };
+        });
+        setRecords(map);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, selectedWorker, currentMonth]);
+
+  useEffect(() => { loadRecords(); }, [loadRecords]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -164,14 +208,39 @@ export default function AdminAttendance() {
     setEditState(recordToEditState(dateStr, records[key]));
   };
 
-  const saveRecord = () => {
-    if (!editState) return;
-    const key = `${editState.date}_${selectedWorker}`;
+  const saveRecord = async () => {
+    if (!editState || !user?.email) return;
     const amStatus = buildStatus(editState.amType, editState.amHours, editState.amProxy);
     const pmStatus = buildStatus(editState.pmType, editState.pmHours, editState.pmProxy);
-    setRecords(prev => ({ ...prev, [key]: { userId: selectedWorker, date: editState.date, amStatus, pmStatus } }));
-    toast.success(`${editState.date} 差勤已更新`);
-    setEditState(null);
+    
+    // 計算工時時數
+    const getHrs = (type: StatusType, hrs: number) => (type === "／" || type === "代_") ? 4 : 0;
+    const leaveHrs = (type: StatusType, hrs: number) => (type === "特") ? hrs : 0;
+    
+    const workHours = getHrs(editState.amType, editState.amHours) + getHrs(editState.pmType, editState.pmHours);
+    const leaveHours = leaveHrs(editState.amType, editState.amHours) + leaveHrs(editState.pmType, editState.pmHours);
+
+    const res = await gasPost("upsertAttendance", {
+      callerEmail: user.email,
+      record: {
+        userId: selectedWorker,
+        date: editState.date,
+        amStatus,
+        pmStatus,
+        workHours,
+        leaveHours,
+        source: "admin",
+        updatedAt: format(new Date(), "yyyy-MM-dd HH:mm:ss")
+      }
+    });
+
+    if (res.success) {
+      toast.success(`${editState.date} 差勤已更新`);
+      loadRecords();
+      setEditState(null);
+    } else {
+      toast.error("儲存失敗: " + res.error);
+    }
   };
 
   const workerRecords = Object.entries(records)
@@ -185,7 +254,7 @@ export default function AdminAttendance() {
     return sum + h(r.amStatus) + h(r.pmStatus);
   }, 0);
 
-  const workerName = MOCK_WORKERS.find(w => w.userId === selectedWorker)?.name || "";
+  const workerName = workers.find(w => w.userId === selectedWorker)?.name || "";
 
   return (
     <div className="space-y-6 print:space-y-4">
@@ -219,7 +288,7 @@ export default function AdminAttendance() {
 
       <div className="flex flex-wrap gap-3 items-start print:hidden">
         <div className="flex gap-2 flex-wrap">
-          {MOCK_WORKERS.map(w => (
+          {workers.map(w => (
             <button key={w.userId} onClick={() => setSelectedWorker(w.userId)}
               className={cn("px-3 py-1.5 text-sm font-medium rounded-lg border transition-all",
                 selectedWorker === w.userId
@@ -228,6 +297,7 @@ export default function AdminAttendance() {
               {w.name}
             </button>
           ))}
+          {workers.length === 0 && <span className="text-xs text-muted-foreground py-2">載入人員中...</span>}
         </div>
         <div className="flex gap-3 ml-auto">
           {[
