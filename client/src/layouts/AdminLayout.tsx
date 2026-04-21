@@ -27,6 +27,7 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
   const { user, isAuthenticated, logout } = useGasAuthContext();
   const [, navigate] = useLocation();
 
+  // 未登入 → 提示登入
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -42,6 +43,12 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
         </div>
       </div>
     );
+  }
+
+  // 角色權限控管：只有 admin / deptMgr / billing 可進入管理端
+  if (user && user.role === "worker") {
+    navigate("/worker/today");
+    return null;
   }
 
   return (

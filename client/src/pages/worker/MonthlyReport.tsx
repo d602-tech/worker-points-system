@@ -25,14 +25,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function getMonthlyItems(workerType: string) {
-  return POINTS_CONFIG_SEED.filter(
-    item =>
-      item.workerType === workerType &&
-      (item.category === "B1" || item.category === "B2" || item.category === "C"),
-  );
-}
-
 // ============================================================
 // 型別
 // ============================================================
@@ -85,19 +77,38 @@ const STATUS_LABEL: Record<string, string> = {
 export default function MonthlyReport() {
   const { user } = useGasAuthContext();
   const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
-  const monthlyItemDefs = useMemo(() => {
-    const monthStr = format(currentMonth, "yyyy-MM");
-    const isCnyMonth = monthStr === "2026-02";
-    return getMonthlyItems(workerType).filter(item => {
-      if (item.category === "B2") return isCnyMonth;
-      return true;
-    });
-  }, [workerType, currentMonth]);
+
+  // ── 狀態宣告（必須在 useMemo 之前） ──
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [pointsConfig, setPointsConfig] = useState<any[]>([]);
   const [items, setItems] = useState<MonthlyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+
+  // ── 動態匯入點數設定，避免循環依賴 ──
+  useEffect(() => {
+    let cancelled = false;
+    import("../../../../shared/domain").then((mod) => {
+      if (!cancelled) setPointsConfig(mod.POINTS_CONFIG_SEED);
+    }).catch((e) => console.error("載入點數設定失敗", e));
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── 月報項目定義（依賴 pointsConfig、currentMonth） ──
+  const monthlyItemDefs = useMemo(() => {
+    const monthStr = format(currentMonth, "yyyy-MM");
+    const isCnyMonth = monthStr === "2026-02";
+    return pointsConfig
+      .filter((item: any) =>
+        item.workerType === workerType &&
+        (item.category === "B1" || item.category === "B2" || item.category === "C"),
+      )
+      .filter((item: any) => {
+        if (item.category === "B2") return isCnyMonth;
+        return true;
+      });
+  }, [workerType, currentMonth, pointsConfig]);
   const [resubmitNoteMap, setResubmitNoteMap] = useState<Record<string, string>>({});
 
   // File input refs per item

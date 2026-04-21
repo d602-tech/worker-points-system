@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Search, Plus, Edit2, Trash2, Download, KeyRound,
   X, PlusCircle, Loader2, CheckCircle2, Camera, Upload, Trash,
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { gasPost, uploadFileToDrive } from "@/lib/gasApi";
+import { gasPost, gasGet, uploadFileToDrive } from "@/lib/gasApi";
 import { hashPassword, useGasAuthContext } from "@/lib/useGasAuth";
 import { differenceInCalendarDays } from "date-fns";
 
@@ -87,16 +87,26 @@ const WORKER_TYPE_FILTER = ["全部", ...Object.values(WORKER_TYPE_LABELS)];
 const AREA_FILTER = ["全部", ...AREAS];
 
 // ============================================================
-// Mock 資料（修正版）
+// GAS 欄位名 → Worker 物件映射
 // ============================================================
 
-const MOCK_WORKERS: Worker[] = [
-  { userId: "W001", name: "王小明", email: "wang@example.com", department: "土木工作隊", area: "大潭", workerType: "general", onboardDate: "2025-01-01", status: "在職", pastExpDays: 120 },
-  { userId: "W002", name: "李大華", email: "li@example.com", department: "土木工作隊", area: "大潭", workerType: "general", onboardDate: "2025-03-15", status: "在職", pastExpDays: 45 },
-  { userId: "W003", name: "陳美玲", email: "chen@example.com", department: "電氣工作隊", area: "金門", workerType: "offshore", onboardDate: "2024-09-01", status: "在職", pastExpDays: 210 },
-  { userId: "W004", name: "張志偉", email: "zhang@example.com", department: "工安組", area: "處本部", workerType: "safety", onboardDate: "2025-06-01", status: "停職", pastExpDays: 30 },
-  { userId: "W005", name: "劉雅婷", email: "liu@example.com", department: "工安組", area: "處本部", workerType: "environment", onboardDate: "2024-12-01", status: "離職", pastExpDays: 90 },
-];
+function mapSheetRowToWorker(row: Record<string, unknown>): Worker {
+  const isActive = String(row["是否啟用"] ?? "true");
+  let status: WorkerStatus = "在職";
+  if (isActive === "false" || isActive === "FALSE") status = "離職";
+  return {
+    userId: String(row["人員編號"] || ""),
+    name: String(row["姓名"] || ""),
+    email: String(row["電子信箱"] || ""),
+    department: String(row["所屬部門"] || ""),
+    area: String(row["服務區域"] || ""),
+    workerType: (String(row["職務類型"] || "general")) as WorkerType,
+    onboardDate: String(row["到職日"] || ""),
+    status,
+    pastExpDays: Number(row["過往年資天數"] || 0),
+    pastExpDetail: String(row["過往年資明細"] || ""),
+  };
+}
 
 // ============================================================
 // 工具函式
@@ -650,8 +660,30 @@ export default function AdminUsers() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editWorker, setEditWorker] = useState<Worker | null>(null);
   const [pwdWorker, setPwdWorker] = useState<Worker | null>(null);
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
 
-  const filtered = MOCK_WORKERS.filter(w => {
+  // 從 GAS API 載入真實人員資料
+  const loadWorkers = useCallback(async () => {
+    if (!user?.email) return;
+    setLoadingList(true);
+    try {
+      const res = await gasGet<Record<string, unknown>[]>("getWorkers", { callerEmail: user.email });
+      if (res.success && Array.isArray(res.data)) {
+        setWorkers(res.data.map(mapSheetRowToWorker));
+      } else {
+        toast.error(res.error || "載入人員資料失敗");
+      }
+    } catch (err) {
+      toast.error(`載入失敗：${String(err)}`);
+    } finally {
+      setLoadingList(false);
+    }
+  }, [user?.email]);
+
+  useEffect(() => { loadWorkers(); }, [loadWorkers]);
+
+  const filtered = workers.filter(w => {
     const typeLabel = WORKER_TYPE_LABELS[w.workerType];
     const matchSearch = !search || w.name.includes(search) || w.userId.includes(search) || w.email.includes(search);
     const matchType = filterType === "全部" || typeLabel === filterType;
@@ -670,7 +702,7 @@ export default function AdminUsers() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">人員管理</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            共 {MOCK_WORKERS.length} 位協助員，{MOCK_WORKERS.filter(w => w.status === "在職").length} 位在職
+            共 {workers.length} 位協助員，{workers.filter(w => w.status === "在職").length} 位在職
           </p>
         </div>
         <div className="flex gap-2">
@@ -781,7 +813,7 @@ export default function AdminUsers() {
           </table>
         </div>
         <div className="px-4 py-3 border-t border-border/30 flex items-center justify-between text-xs text-muted-foreground">
-          <span>顯示 {filtered.length} / {MOCK_WORKERS.length} 筆</span>
+          <span>顯示 {filtered.length} / {workers.length} 筆</span>
           <span>資料來源：Google Sheets「人員資料」分頁</span>
         </div>
       </div>
@@ -791,7 +823,7 @@ export default function AdminUsers() {
         <WorkerModal
           worker={editWorker}
           onClose={() => { setShowAddModal(false); setEditWorker(null); }}
-          onSaved={() => { /* 重新載入列表 */ }}
+          onSaved={() => { loadWorkers(); }}
           callerEmail={user?.email || ""}
         />
       )}
