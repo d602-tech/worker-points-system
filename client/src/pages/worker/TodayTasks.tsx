@@ -203,6 +203,16 @@ export default function TodayTasks() {
   // ── 送出：先上傳檔案到 Drive，再送點數 ──────────────────
   const handleSubmit = async () => {
     setShowConfirmDialog(false);
+
+    // 每日任務沒有上傳附件禁止上傳
+    const tasksMissingFiles = tasks.filter(t => t.completed && t.files.length === 0 && t.status === "draft");
+    if (tasksMissingFiles.length > 0) {
+      toast.error(`以下項目缺少附件，禁止上傳：\n${tasksMissingFiles.map(t => t.name).join(", ")}`, {
+        duration: 4000,
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const dateStr = format(currentDate, "yyyy-MM-dd");

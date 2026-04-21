@@ -85,7 +85,14 @@ const STATUS_LABEL: Record<string, string> = {
 export default function MonthlyReport() {
   const { user } = useGasAuthContext();
   const workerType = useMemo(() => user?.workerType || "general", [user?.workerType]);
-  const monthlyItemDefs = useMemo(() => getMonthlyItems(workerType), [workerType]);
+  const monthlyItemDefs = useMemo(() => {
+    const monthStr = format(currentMonth, "yyyy-MM");
+    const isCnyMonth = monthStr === "2026-02";
+    return getMonthlyItems(workerType).filter(item => {
+      if (item.category === "B2") return isCnyMonth;
+      return true;
+    });
+  }, [workerType, currentMonth]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [items, setItems] = useState<MonthlyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -593,8 +600,9 @@ export default function MonthlyReport() {
                 {/* Input area */}
                 {isC ? (
                   <div className="space-y-3">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
-                      本月績效評估
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 flex justify-between items-center">
+                      <span>本月績效評估</span>
+                      <span className="text-blue-600 font-bold">由主辦部門評估</span>
                     </div>
                     <div className="flex gap-2.5">
                       {PERF_LEVELS.map(({ value, label, points, color }) => (

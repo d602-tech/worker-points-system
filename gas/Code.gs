@@ -368,7 +368,7 @@ function seedPointDefinitions(ss) {
     ['GEN-B1-03','general','B1','協議組織運作與績效分析',3000,'月','每月',''],
     ['GEN-B1-04','general','B1','職安衛文書作業與水平展開',2900,'月','每月',''],
     ['GEN-B2-01','general','B2','春節期間強化作業',5000,'次','每年',''],
-    ['GEN-C-01', 'general','C', '臨時交辦與績效',5000,'月','每月','優5000/佳3000/平2000'],
+    ['GEN-C-01', 'general','C', '臨時交辦與績效',5000,'月','每月','優5000/佳3000/平2000（由主辦部門評估）'],
     ['GEN-S-01', 'general','S', '特休代付款',220,'小時','每月',''],
     ['GEN-P-01', 'general','P', '懲罰性違約金 (未派員履約)',220,'小時','事件',''],
     // 離島工地協助員 (offshore) — 13 筆
@@ -382,7 +382,7 @@ function seedPointDefinitions(ss) {
     ['OFF-B1-03','offshore','B1','協議組織運作與績效分析',4000,'月','每月',''],
     ['OFF-B1-04','offshore','B1','職安衛文書作業與水平展開',3600,'月','每月',''],
     ['OFF-B2-01','offshore','B2','春節期間強化作業',7000,'次','每年',''],
-    ['OFF-C-01', 'offshore','C', '臨時交辦與績效',7200,'月','每月','優7200/佳5200/平4200'],
+    ['OFF-C-01', 'offshore','C', '臨時交辦與績效',7200,'月','每月','優7200/佳5200/平4200（由主辦部門評估）'],
     ['OFF-S-01', 'offshore','S', '特休代付款',290,'小時','每月',''],
     ['OFF-P-01', 'offshore','P', '懲罰性違約金 (未派員履約)',290,'小時','事件',''],
     // 職安業務兼管理員 (safety) — 12 筆
@@ -395,7 +395,7 @@ function seedPointDefinitions(ss) {
     ['SAF-B1-04','safety','B1','廠商管理人每月計價作業',4500,'月','每月',''],
     ['SAF-B1-05','safety','B1','出勤調度與差勤抽查',500,'月','每月',''],
     ['SAF-B2-01','safety','B2','春節期間防護檢核資料彙整',4000,'次','每年',''],
-    ['SAF-C-01', 'safety','C', '臨時交辦與績效',5000,'月','每月','優5000/佳3000/平2000'],
+    ['SAF-C-01', 'safety','C', '臨時交辦與績效',5000,'月','每月','優5000/佳3000/平2000（由主辦部門評估）'],
     ['SAF-S-01', 'safety','S', '特休代付款',200,'小時','每月',''],
     ['SAF-P-01', 'safety','P', '懲罰性違約金 (未派員履約)',200,'小時','事件',''],
     // 環保業務人員 (environment) — 13 筆
@@ -403,7 +403,8 @@ function seedPointDefinitions(ss) {
     ['ENV-A2-01','environment','A2','天然災害停止上班遠端作業(颱風假、豪雨假等)',400,'天','事件',''],
     ['ENV-B1-01','environment','B1','行政文書核心',29500,'月','每月',''],
     ['ENV-B2-01','environment','B2','春節期間防護檢核資料彙整',2000,'次','每年',''],
-    ['ENV-C-01', 'environment','C', '臨時交辦與績效',2000,'月','每月','優2000/佳1000/平500'],
+    ['ENV-C-01', 'environment','C', '臨時交辦與績效',2000,'月','每月','優2000/佳1000/平500（由主辦部門評估）'],
+
     ['ENV-D1-01','environment','D1','環境管理方案執行績效管制',100,'天','每日',''],
     ['ENV-D1-02','environment','D1','監督與量測計畫及實施',100,'天','每日',''],
     ['ENV-D1-03','environment','D1','法規鑑別與守規性之評估作業程序書作業',250,'天','每日',''],
@@ -1099,6 +1100,14 @@ function saveMonthlyPoints(callerEmail, record) {
   var perm = checkPermission(callerEmail, ['admin','deptMgr','worker']);
   if (!perm.allowed) return { success: false, error: perm.reason };
   if (!record) return { success: false, error: '缺少 record 資料' };
+
+  // 春節項目限 2026-02
+  var itemId = record[COLUMNS.MONTHLY_POINTS.ITEM_ID] || record.itemId || '';
+  var ym = record[COLUMNS.MONTHLY_POINTS.YEAR_MONTH] || record.yearMonth || '';
+  if (itemId.indexOf('-B2-') !== -1 && String(ym).indexOf('2026-02') === -1) {
+    return { success: false, error: '春節強化作業點數僅限 2026-02 填報' };
+  }
+
 
   var userId = record[COLUMNS.MONTHLY_POINTS.USER_ID] || record.userId;
   if (perm.callerRole === 'worker' && userId !== perm.callerUserId) {
@@ -2078,5 +2087,68 @@ function setupTestAccounts() {
         return '• ' + a[1] + '（' + a[2] + '）角色：' + a[4];
       }).join('\n')
     );
+  } catch (_) {}
+}
+
+/**
+ * 執行此函式以建立正式人員名冊
+ */
+function setupRealAccounts() {
+  var ss    = getAppSpreadsheet();
+  var sheet = ss.getSheetByName(SHEETS.USERS);
+  if (!sheet) {
+    Logger.log('❌ 請先執行 initAll()');
+    return;
+  }
+
+  // SHA-256('test1234') 的 hex
+  var testHash = '937e8d5fbb48bd4949536cd65b8d35c426b80d2f830c5c308e2cdec422ae2244';
+  var now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
+  
+  // 項次	姓名	區域	主辦部門	職務	到職日期	過往年資(天)	總年資(年)	特休天數	過往標案經歷	gmail
+  var rawData = [
+    ['江婉瑜','處本部','工安組','safety','2026-05-15',0,'0.63','12@gmail.com'],
+    ['廖御超','處本部','檢驗組','environment','2026-05-15',0,'0.63','13@gmail.com'],
+    ['廖見壬','大潭','電氣工作隊','general','2026-04-22',0,'0.70','14@gmail.com'],
+    ['黃婉婷','通霄','中部工作隊','general','2026-04-22',0,'0.70','15@gmail.com'],
+    ['沈敬晏','通霄','中部工作隊','general','2026-04-22',0,'0.70','16@gmail.com'],
+    ['張馨玫','通霄','中部工作隊','general','2026-04-22',0,'0.70','17@gmail.com'],
+    ['小3','大林','南部工作隊','general','2026-04-22',0,'0.70','18@gmail.com'],
+    ['曾漢旗','興達','南部工作隊','general','2026-04-22',0,'0.70','19@gmail.com'],
+    ['溫嘉玲','興達','南部工作隊','general','2026-04-23',0,'0.69','20@gmail.com'],
+    ['小6','金門','電氣工作隊','offshore','2026-04-22',0,'0.70','21@gmail.com'],
+    ['小7','琉球','機械工作隊','offshore','2026-04-22',0,'0.70','22@gmail.com']
+  ];
+
+  var accounts = rawData.map(function(item, idx) {
+    var id = 'USR' + (idx + 1).toString().padStart(3, '0');
+    return [
+      id,              // 人員編號
+      item[0],         // 姓名
+      item[7],         // 電子信箱
+      testHash,        // 密碼雜湊 (預設 test1234)
+      'worker',        // 角色
+      item[2],         // 所屬部門
+      item[1],         // 服務區域
+      item[3],         // 職務類型
+      item[4],         // 到職日
+      item[5],         // 過往年資天數
+      '總年資:' + item[6] + '年', // 過往年資明細
+      true,            // 是否啟用
+      now,             // 建立時間
+      '',              // 最後登入時間
+      'password'       // 登入方式
+    ];
+  });
+
+  // 清除現有資料（保留標頭）
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+
+  sheet.getRange(2, 1, accounts.length, accounts[0].length).setValues(accounts);
+  Logger.log('✅ 建立正式人員名冊：' + accounts.length + ' 筆');
+
+  try {
+    SpreadsheetApp.getUi().alert('✅ 正式人員名冊建立完成！\n共 ' + accounts.length + ' 筆資料。\n預設密碼均為：test1234');
   } catch (_) {}
 }
