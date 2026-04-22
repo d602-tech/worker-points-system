@@ -82,7 +82,7 @@ export default function ReportFee() {
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">服務費統計表</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">點數轉換服務費統計（單價：{POINT_RATE} 元/點）</p>
+          <p className="text-sm text-muted-foreground mt-0.5">點數換算價值統計（價值：{POINT_RATE} 點）</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
@@ -100,10 +100,10 @@ export default function ReportFee() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
         {[
-          { label: "本月總計", value: grandPts.toLocaleString(), unit: "元", color: "text-blue-700 bg-blue-50" },
+          { label: "本月總計", value: grandPts.toLocaleString(), unit: "點", color: "text-blue-700 bg-blue-50" },
           { label: "本月服務費", value: grandFee.toLocaleString(), unit: "元", color: "text-emerald-700 bg-emerald-50" },
           { label: "協助員人數", value: reportData.length.toString(), unit: "人", color: "text-purple-700 bg-purple-50" },
-          { label: "人均金額", value: reportData.length > 0 ? Math.round(grandPts / reportData.length).toLocaleString() : "0", unit: "元", color: "text-amber-700 bg-amber-50" },
+          { label: "人均點數", value: reportData.length > 0 ? Math.round(grandPts / reportData.length).toLocaleString() : "0", unit: "點", color: "text-amber-700 bg-amber-50" },
         ].map(({ label, value, unit, color }) => (
           <div key={label} className={cn("rounded-2xl p-4", color)}>
             <div className="text-2xl font-bold">{value} <span className="text-sm font-normal">{unit}</span></div>
@@ -167,7 +167,7 @@ export default function ReportFee() {
         <div className="px-4 py-3 border-t border-border/30 space-y-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground print:hidden">
             <TrendingUp className="w-3.5 h-3.5" />
-            <span>資料來源：Google Sheets「服務費統計表」分頁 | 點數單價：{POINT_RATE} 元/點</span>
+            <span>資料來源：Google Sheets「服務費統計表」分頁 | 點數價值：{POINT_RATE} 點</span>
           </div>
           <div className="text-xs font-medium text-foreground">
             本月服務費合計：<span className="font-bold text-emerald-700">{toChineseAmount(grandFee)}</span>

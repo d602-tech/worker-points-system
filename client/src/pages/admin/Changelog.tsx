@@ -27,6 +27,16 @@ interface VersionRecord {
 
 const VERSIONS: VersionRecord[] = [
   {
+    version: "v3.3",
+    date: "2026-04-22",
+    title: "1140422 第1次修正",
+    entries: [
+      { type: "rule",    text: "計價單位名稱修正：全面將協助員線上看到的「元」改為「點」，涵蓋今日任務、月報、日曆總覽與管理端報表小計。" },
+      { type: "improve", text: "欄位名稱優化：更新「預計獲得金額」為「預計獲得點數」、「人均金額」為「人均點數」、「點數單價」為「點數價值」。" },
+      { type: "export",  text: "Excel 報表更新：同步更新匯出檔案之表頭單位（元→點），服務費部分仍保留「元」以示真實台幣金額。" },
+    ],
+  },
+  {
     version: "v3.2",
     date: "2026-04-14",
     title: "1140414 第1次修正",

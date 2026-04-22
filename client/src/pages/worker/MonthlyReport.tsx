@@ -514,7 +514,7 @@ export default function MonthlyReport() {
               </span>
               <span className="text-3xl font-black text-white">
                 {totalPoints.toLocaleString()}
-                <span className="text-sm font-bold ml-1 text-slate-400">元</span>
+                <span className="text-sm font-bold ml-1 text-slate-400">點</span>
               </span>
               <div className="text-[11px] font-medium text-white/70 mt-1.5 flex items-center gap-1.5 flex-wrap">
                 <span>每日: {dailyTotal.toLocaleString()}</span>
@@ -600,7 +600,7 @@ export default function MonthlyReport() {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="text-xs font-bold text-slate-400">
-                      {item.pointsPerUnit.toLocaleString()} 元
+                      {item.pointsPerUnit.toLocaleString()} 點
                     </div>
                     <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
                       PER {item.unit}
@@ -630,7 +630,7 @@ export default function MonthlyReport() {
                           )}
                         >
                           <span className="text-base font-black">{label}</span>
-                          <span className="text-[10px] font-bold opacity-80">{points.toLocaleString()}元</span>
+                          <span className="text-[10px] font-bold opacity-80">{points.toLocaleString()}點</span>
                         </button>
                       ))}
                     </div>
@@ -664,7 +664,7 @@ export default function MonthlyReport() {
                       "text-sm font-black",
                       item.quantity > 0 ? "text-blue-700" : "text-slate-300",
                     )}>
-                      {item.quantity > 0 ? `+${item.pointsPerUnit.toLocaleString()} 元` : "—"}
+                      {item.quantity > 0 ? `+${item.pointsPerUnit.toLocaleString()} 點` : "—"}
                     </div>
                   </button>
                 )}
@@ -677,7 +677,7 @@ export default function MonthlyReport() {
                       +{(isC
                         ? PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0
                         : item.pointsPerUnit * item.quantity
-                      ).toLocaleString()} 元
+                      ).toLocaleString()} 點
                     </span>
                   </div>
                 )}
@@ -829,7 +829,7 @@ export default function MonthlyReport() {
           ) : (
             <>
               <Send className="w-5 h-5" />
-              送出月報累記 ({totalPoints.toLocaleString()} 元)
+              送出月報累記 ({totalPoints.toLocaleString()} 點)
             </>
           )}
         </Button>

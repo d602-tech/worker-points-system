@@ -447,7 +447,7 @@ export default function TodayTasks() {
             <div className="text-center">
               <div className="text-[10px] font-bold text-muted-foreground leading-none">已上傳</div>
               <div className="text-sm font-bold text-emerald-700">
-                {submittedPoints > 0 ? `${submittedPoints.toLocaleString()}元` : "—"}
+                {submittedPoints > 0 ? `${submittedPoints.toLocaleString()}點` : "—"}
               </div>
             </div>
           </div>
@@ -491,7 +491,7 @@ export default function TodayTasks() {
                       </span>
                     </div>
                     <div className="text-[15px] font-bold text-foreground leading-snug">{task.name}</div>
-                    <div className="text-sm font-black text-blue-800 mt-1">{task.points.toLocaleString()} 元</div>
+                    <div className="text-sm font-black text-blue-800 mt-1">{task.points.toLocaleString()} 點</div>
                     {task.note && (
                       <div className="mt-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">{task.note}</div>
                     )}
@@ -517,7 +517,7 @@ export default function TodayTasks() {
             <div className="bg-slate-50 rounded-2xl p-4 flex items-center justify-between border border-slate-100">
               <span className="text-sm font-bold text-slate-600">當日總計</span>
               <span className="text-base font-black text-blue-800">
-                {tasks.filter(t => t.completed).reduce((s, t) => s + t.points, 0).toLocaleString()} 元
+                {tasks.filter(t => t.completed).reduce((s, t) => s + t.points, 0).toLocaleString()} 點
               </span>
             </div>
             <div className="text-center text-xs text-muted-foreground py-2 px-4 leading-relaxed">
@@ -557,7 +557,7 @@ export default function TodayTasks() {
                       <h4 className={cn("text-[15px] font-bold leading-snug", task.completed ? "text-foreground" : "text-muted-foreground")}>{task.name}</h4>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-black text-blue-800">{task.points.toLocaleString()} 元</div>
+                      <div className="text-sm font-black text-blue-800">{task.points.toLocaleString()} 點</div>
                     </div>
                   </div>
                   {isRejected && task.rejectionReason && (
@@ -773,9 +773,9 @@ export default function TodayTasks() {
                   <span className="text-sm font-black text-slate-900">{lastSubmittedCount} 項</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600">預計獲得金額</span>
+                  <span className="text-sm font-bold text-slate-600">預計獲得點數</span>
                   <span className="text-sm font-black text-blue-700">
-                    {tasks.filter(t => t.status === "submitted").reduce((sum, t) => sum + t.points, 0).toLocaleString()} 元
+                    {tasks.filter(t => t.status === "submitted").reduce((sum, t) => sum + t.points, 0).toLocaleString()} 點
                   </span>
                 </div>
               </div>

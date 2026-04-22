@@ -1029,7 +1029,7 @@ export default function CalendarOverview() {
                                 {task.itemName}
                               </div>
                               <div className="text-xs text-muted-foreground mt-0.5">
-                                {task.points} 元
+                                {task.points} 點
                               </div>
                             </div>
                             <span className={cn(

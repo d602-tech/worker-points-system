@@ -185,7 +185,7 @@ export default function ReportSummary() {
           </table>
         </div>
         <div className="px-4 py-3 border-t border-border/30 flex items-center justify-between text-xs text-muted-foreground print:hidden">
-          <span>{selectedMonth} 共計：{grandTotal.toLocaleString()} 元</span>
+          <span>{selectedMonth} 共計：{grandTotal.toLocaleString()} 點</span>
           <span>資料來源：Google Sheets「月度點數明細」分頁</span>
         </div>
       </div>

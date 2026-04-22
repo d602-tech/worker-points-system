@@ -219,7 +219,7 @@ export default function AdminConfig() {
           <h3 className="text-sm font-semibold text-foreground">系統參數</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1.5">點數單價（元/點）</label>
+              <label className="text-xs font-medium text-muted-foreground block mb-1.5">點數價值 (點)</label>
               <Input value={pointRate} onChange={e => setPointRate(e.target.value)} type="number" step="0.001" className="text-sm" />
             </div>
             <div>

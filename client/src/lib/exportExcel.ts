@@ -299,14 +299,14 @@ export function exportServiceFeeReport(
   const title = `${orgName} ${month} 服務費統計表`;
   const headers = [
     '工號', '姓名', '協助員類型', '服務區域',
-    '月度總點數', '點數單價（元/點）', '服務費（元）', '服務費（中文大寫）'
+    '月度總點數', '點數價值 (點)', '服務費（元）', '服務費（中文大寫）'
   ];
 
   const totalFee = rows.reduce((s, r) => s + r.serviceFee, 0);
 
   const data: (string | number)[][] = [
     [title],
-    [`點數單價：${pointRate} 元/點`, `統計月份：${month}`],
+    [`點數價值：${pointRate} 點`, `統計月份：${month}`],
     headers,
     ...rows.map(r => [
       r.workerId, r.workerName, r.workerType, r.area,
