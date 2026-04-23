@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format, addDays, subDays, isToday, isBefore, startOfDay, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { cn, safeFormat } from "@/lib/utils";
 import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getFileIndexByDate, getDriveFolderId, type FileIndexRow } from "@/lib/gasApi";
@@ -602,7 +603,7 @@ export default function TodayTasks() {
                       <div className="bg-emerald-50/50 p-3 rounded-2xl flex items-center gap-2 border border-emerald-100">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                         <span className="text-xs font-bold text-emerald-700">
-                          資料已於 {task.submittedAt ? format(parseISO(String(task.submittedAt)), "HH:mm") : "今日"} 完成上傳。
+                          資料已於 {task.submittedAt ? safeFormat(task.submittedAt, "HH:mm", "今日") : "今日"} 完成上傳。
                         </span>
                       </div>
                       

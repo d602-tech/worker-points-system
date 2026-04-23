@@ -9,6 +9,7 @@ import {
   isToday, getDay, isBefore, startOfDay, addMonths,
 } from "date-fns";
 import { zhTW } from "date-fns/locale";
+import { cn, safeFormat } from "@/lib/utils";
 import { toast } from "sonner";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import {
@@ -953,7 +954,7 @@ export default function CalendarOverview() {
             <div className="flex items-center justify-between px-5 py-3 border-b border-border/60">
               <div>
                 <div className="text-base font-semibold text-foreground">
-                  {selectedDate && format(new Date(selectedDate), "M月d日（EEE）", { locale: zhTW })}
+                  {selectedDate && safeFormat(selectedDate, "M月d日（EEE）", "未知日期")}
                 </div>
                 <div className={cn(
                   "inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium",
@@ -1063,7 +1064,7 @@ export default function CalendarOverview() {
                             <div className="flex-1 min-w-0">
                               <div className="text-sm text-blue-600 truncate">{f.fileName}</div>
                               <div className="text-xs text-muted-foreground mt-0.5">
-                                {f.uploadedAt ? format(new Date(f.uploadedAt), "HH:mm") : ""}
+                                {f.uploadedAt ? safeFormat(f.uploadedAt, "HH:mm") : ""}
                               </div>
                             </div>
                             <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
@@ -1107,7 +1108,7 @@ export default function CalendarOverview() {
               <div className="text-base font-semibold text-foreground">申請請假</div>
               {selectedDate && (
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {format(new Date(selectedDate), "M月d日（EEE）", { locale: zhTW })}
+                  {safeFormat(selectedDate, "M月d日（EEE）", "未知日期")}
                 </div>
               )}
             </div>
