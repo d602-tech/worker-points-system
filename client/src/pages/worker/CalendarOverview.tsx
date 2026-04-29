@@ -71,7 +71,7 @@ const LEAVE_PREFIX: Record<LeaveType, string> = {
   "婚假": "婚", "喪假": "喪", "公假": "公",
 };
 
-const LEAVE_CODES = ["特", "病", "事", "婚", "喪", "公"];
+const LEAVE_CODES = ["特", "病", "事", "婚", "喪", "公", "換", "休"];
 
 const STATUS_DOT: Record<DayStatus, string> = {
   none: "", draft: "bg-amber-400", submitted: "bg-blue-500",
@@ -204,7 +204,10 @@ export default function CalendarOverview() {
       });
       if (res.success && res.data) {
         const map: Record<string, AttendanceRow> = {};
-        res.data.forEach(row => { map[row.date] = row; });
+        res.data.forEach(row => { 
+          const dStr = safeFormat(row.date, "yyyy-MM-dd", "");
+          if (dStr) map[dStr] = row; 
+        });
         setAttendanceMap(map);
       }
     } finally {
@@ -225,7 +228,10 @@ export default function CalendarOverview() {
       .then(res => {
         if (res.success && res.data) {
           const map: Record<string, AttendanceRow> = {};
-          res.data.forEach(row => { map[row.date] = row; });
+          res.data.forEach(row => { 
+            const dStr = safeFormat(row.date, "yyyy-MM-dd", "");
+            if (dStr) map[dStr] = row; 
+          });
           setNextMonthAttMap(map);
         }
       });
@@ -669,8 +675,8 @@ export default function CalendarOverview() {
                 if (wh > 0) currentDays++;
             });
             if (currentDays > targetDays) {
-                errorMsg = `警告：${format(month, "M月")}排班天數 (${currentDays}天) 超過該月預設上班日 (${targetDays}天)。確定送出嗎？`;
-                // 不再 break，允許繼續，僅作為警告提示
+                errorMsg = `當月排班天數 (${currentDays}天) 超過預設上班日 (${targetDays}天)，假日出勤必須與平日換休對調！`;
+                break;
             }
         }
         
@@ -762,6 +768,8 @@ export default function CalendarOverview() {
                               <option value="病假">病假</option>
                               <option value="婚假">婚假</option>
                               <option value="喪假">喪假</option>
+                              <option value="換休">換休</option>
+                              <option value="休假">休假</option>
                             </select>
                           ) : att?.amStatus ? (
                             <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.amStatus}</span>
@@ -786,6 +794,8 @@ export default function CalendarOverview() {
                               <option value="病假">病假</option>
                               <option value="婚假">婚假</option>
                               <option value="喪假">喪假</option>
+                              <option value="換休">換休</option>
+                              <option value="休假">休假</option>
                             </select>
                           ) : att?.pmStatus ? (
                             <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100">{att.pmStatus}</span>

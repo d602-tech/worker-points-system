@@ -686,8 +686,14 @@ function getAttendance(callerEmail, workerId, yearMonth) {
     if (perm.callerRole === 'worker' && rid !== perm.callerUserId) return false;
     if (workerId && rid !== workerId) return false;
     if (yearMonth) {
-      var d = String(r[COLUMNS.ATTENDANCE.DATE]);
-      if (!d.startsWith(yearMonth.replace('/','-').substring(0,7))) return false;
+      var rawDate = r[COLUMNS.ATTENDANCE.DATE];
+      var dStr = "";
+      if (rawDate instanceof Date) {
+        dStr = Utilities.formatDate(rawDate, 'Asia/Taipei', 'yyyy-MM-dd');
+      } else {
+        dStr = String(rawDate).substring(0, 10);
+      }
+      if (!dStr.startsWith(yearMonth.replace('/','-').substring(0,7))) return false;
     }
     return true;
   });
@@ -775,7 +781,7 @@ function upsertAttendance(callerEmail, record) {
 function calcWorkAndLeave(amStatus, pmStatus) {
   function parseHours(status) {
     if (!status || status === '') return { work: 0, leave: 0 };
-    if (status === '／') return { work: 4, leave: 0 };
+    if (status === '／' || status === '出勤') return { work: 4, leave: 0 };
     if (status.startsWith('代')) return { work: 4, leave: 0 };
     if (status.startsWith('特')) {
       var h = parseInt(status.substring(1)) || 4;
