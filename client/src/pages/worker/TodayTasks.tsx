@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { format, addDays, subDays, isToday, isBefore, startOfDay, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { cn, safeFormat } from "@/lib/utils";
+import { safeFormat } from "@/lib/utils";
 import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getFileIndexByDate, getDriveFolderId, type FileIndexRow } from "@/lib/gasApi";

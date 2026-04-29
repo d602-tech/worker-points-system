@@ -9,7 +9,7 @@ import {
   isToday, getDay, isBefore, startOfDay, addMonths,
 } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { cn, safeFormat } from "@/lib/utils";
+import { safeFormat } from "@/lib/utils";
 import { toast } from "sonner";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import {
@@ -261,8 +261,10 @@ export default function CalendarOverview() {
           }
           const d = (row as any)["日期"] || (row as any).date;
           if (d) {
-            const dStr = String(d).substring(0, 10);
-            pMap[dStr] = (pMap[dStr] || 0) + pts;
+            const dStr = safeFormat(d, "yyyy-MM-dd", "");
+            if (dStr) {
+              pMap[dStr] = (pMap[dStr] || 0) + pts;
+            }
           }
         });
       }
@@ -271,8 +273,10 @@ export default function CalendarOverview() {
         filesRes.data.forEach(row => {
           const d = (row as any)["日期"] || (row as any).date;
           if (d) {
-            const dStr = String(d).substring(0, 10);
-            uMap[dStr] = true;
+            const dStr = safeFormat(d, "yyyy-MM-dd", "");
+            if (dStr) {
+              uMap[dStr] = true;
+            }
           }
         });
       }
