@@ -27,6 +27,16 @@ interface VersionRecord {
 
 const VERSIONS: VersionRecord[] = [
   {
+    version: "v3.4",
+    date: "2026-04-29",
+    title: "1140429 第1次修正",
+    entries: [
+      { type: "fix",     text: "修正點數日期錯位問題（如 4/24 的點數飄移到 4/26）：因 GAS 回傳的 UTC ISO 字串被字串截斷導致時區錯誤，全面改用 safeFormat 安全轉換本地時區。" },
+      { type: "fix",     text: "修復無效日期導致畫面崩潰 (RangeError: Invalid time value) 的問題：當後端缺乏填報時間時，自動顯示預設文字而非報錯。" },
+      { type: "improve", text: "在 utils 中新增 safeFormat 輔助函式，增加前端對異常日期資料的容錯力，並清理了部分元件中重複引用的問題。" },
+    ],
+  },
+  {
     version: "v3.3",
     date: "2026-04-22",
     title: "1140422 第1次修正",
