@@ -693,13 +693,26 @@ function getAttendance(callerEmail, workerId, yearMonth) {
       var rawDate = r[COLUMNS.ATTENDANCE.DATE];
       var dStr = "";
       if (rawDate instanceof Date) {
-        dStr = Utilities.formatDate(rawDate, 'Asia/Taipei', 'yyyy-MM-dd');
+        dStr = Utilities.formatDate(rawDate, ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
       } else {
-        dStr = String(rawDate).substring(0, 10);
+        dStr = String(rawDate || "").substring(0, 10);
       }
       if (!dStr.startsWith(yearMonth.replace('/','-').substring(0,7))) return false;
     }
     return true;
+  });
+
+  // 重要：將 Date 物件轉為 yyyy-MM-dd 字串，防止 JSON 序列化時產生時區偏移（變成 UTC）
+  var tz = ss.getSpreadsheetTimeZone();
+  records = records.map(function(r) {
+    var rawDate = r[COLUMNS.ATTENDANCE.DATE] || r['日期'] || r.date;
+    if (rawDate instanceof Date) {
+      var dStr = Utilities.formatDate(rawDate, tz, 'yyyy-MM-dd');
+      r[COLUMNS.ATTENDANCE.DATE] = dStr;
+      r['日期'] = dStr;
+      r.date = dStr;
+    }
+    return r;
   });
 
   return { success: true, data: records };

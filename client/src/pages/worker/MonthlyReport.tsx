@@ -82,7 +82,7 @@ export default function MonthlyReport() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [pointsConfig, setPointsConfig] = useState<any[]>([]);
   const [items, setItems] = useState<MonthlyItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -861,7 +861,7 @@ export default function MonthlyReport() {
       </div>
 
       {/* Empty state */}
-      {!isLoading && items.length === 0 && (
+      {!isLoading && items.length === 0 && pointsConfig.length > 0 && (
         <div className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-4">
           <div className="w-20 h-20 bg-slate-50 rounded-[40px] flex items-center justify-center text-slate-200">
             <AlertCircle className="w-10 h-10" />

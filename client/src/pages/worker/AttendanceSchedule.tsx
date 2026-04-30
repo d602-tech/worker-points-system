@@ -548,7 +548,7 @@ export default function AttendanceSchedule() {
             )}
           </div>
         );
-        day = new Date(day.setDate(day.getDate() + 1));
+        day = addDays(day, 1);
       }
       rows.push(
         <div className="grid grid-cols-7 gap-1 mb-1" key={day.toString()}>
