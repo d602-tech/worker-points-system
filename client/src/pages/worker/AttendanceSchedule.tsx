@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek, isBefore, parseISO } from "date-fns";
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek, isBefore, parseISO, addDays } from "date-fns";
 import { Save, Clock, CalendarDays, AlertCircle, Loader2, Briefcase, Palmtree, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
