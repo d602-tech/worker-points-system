@@ -46,6 +46,7 @@ const COLUMNS = {
     WORK_HOURS: '有效工時', LEAVE_HOURS: '特休時數',
     SOURCE: '資料來源', IS_FINALIZED: '是否鎖定',
     NOTE: '備註', UPDATED_AT: '最後更新時間',
+    LEAVE_TIME: '請假時間',
   },
   DAILY_POINTS: {
     RECORD_ID: '紀錄編號', USER_ID: '人員編號', DATE: '日期',
@@ -763,6 +764,7 @@ function upsertAttendance(callerEmail, record) {
       (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true'),
       record[COLUMNS.ATTENDANCE.NOTE] || '',
       now,
+      record[COLUMNS.ATTENDANCE.LEAVE_TIME] || '',
     ];
 
     if (targetRow > 0) {
@@ -855,6 +857,7 @@ function batchUpsertAttendance(callerEmail, records) {
         (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true'),
         record[COLUMNS.ATTENDANCE.NOTE] || '',
         now,
+        record[COLUMNS.ATTENDANCE.LEAVE_TIME] || '',
       ];
 
       if (targetRow > 0) {

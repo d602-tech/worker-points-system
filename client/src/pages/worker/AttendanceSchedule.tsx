@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, parseISO, startOfWeek, endOfWeek, getDay } from "date-fns";
-import { zhTW } from "date-fns/locale";
-import { Save, Clock, CalendarDays, AlertCircle, Loader2 } from "lucide-react";
+import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek } from "date-fns";
+import { Save, Clock, CalendarDays, AlertCircle, Loader2, Briefcase, Palmtree } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -19,12 +18,17 @@ const HOLIDAYS_2026 = [
   '2026-04-06','2026-05-01','2026-06-19','2026-09-25','2026-10-09',
 ];
 
+const TIME_OPTIONS = [
+  "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"
+];
+
 interface DayRecord {
   date: string;
   isStandardWorkday: boolean;
   workHours: number;
   leaveHours: number;
   leaveType: string;
+  leaveTime: string;
   isFinalized: boolean;
 }
 
@@ -42,6 +46,44 @@ export default function AttendanceSchedule() {
   const [dialogWorkHours, setDialogWorkHours] = useState<number>(8);
   const [dialogLeaveHours, setDialogLeaveHours] = useState<number>(0);
   const [dialogLeaveType, setDialogLeaveType] = useState<string>("無");
+  const [dialogLeaveTimeStart, setDialogLeaveTimeStart] = useState<string>("08:00");
+  const [dialogLeaveTimeEnd, setDialogLeaveTimeEnd] = useState<string>("12:00");
+
+  // 當選擇請假時間後，自動計算請假時數
+  const handleTimeChange = (type: "start" | "end", val: string) => {
+    let s = type === "start" ? val : dialogLeaveTimeStart;
+    let e = type === "end" ? val : dialogLeaveTimeEnd;
+    
+    if (type === "start") setDialogLeaveTimeStart(val);
+    else setDialogLeaveTimeEnd(val);
+
+    const sHour = parseInt(s.split(":")[0]);
+    const eHour = parseInt(e.split(":")[0]);
+
+    if (eHour <= sHour) {
+      setDialogLeaveHours(0);
+      return;
+    }
+
+    let hours = 0;
+    for (let h = sHour; h < eHour; h++) {
+      if (h !== 12) hours++; // 排除中午 12:00~13:00 休息時間
+    }
+    
+    setDialogLeaveHours(hours);
+    
+    // 如果目前上班時數 + 新的請假時數 > 8，自動調低上班時數
+    if (dialogWorkHours + hours > 8) {
+      setDialogWorkHours(Math.max(0, 8 - hours));
+    }
+  };
+
+  const handleLeaveHoursInput = (h: number) => {
+    setDialogLeaveHours(h);
+    if (h > 0 && dialogLeaveType === "無") {
+       setDialogLeaveType("特休");
+    }
+  };
 
   // 初始化當月資料
   const initMonthData = async () => {
@@ -72,6 +114,7 @@ export default function AttendanceSchedule() {
           workHours: isStandardWorkday ? 8 : 0,
           leaveHours: 0,
           leaveType: "無",
+          leaveTime: "",
           isFinalized: false
         };
       });
@@ -79,16 +122,14 @@ export default function AttendanceSchedule() {
       // 覆寫已有的後端資料
       if (res.success && res.data && Array.isArray(res.data)) {
         res.data.forEach((r: any) => {
-          let dStr = r["日期"];
+          let dStr = r["日期"] || r.date;
           if (dStr && typeof dStr === "string") dStr = dStr.substring(0, 10);
           else if (dStr instanceof Date) dStr = format(dStr, "yyyy-MM-dd");
           
           if (newSchedule[dStr]) {
-            const wh = parseFloat(r["時數"] || r["工作時數"] || r["workHours"] || "0"); // Handle different column names
-            // Actually in our GAS we have "時數" or "請假時數" etc? 
-            // wait, we changed calcWorkAndLeave but let's parse from AM/PM status
-            const am = r["上午狀態"] || "／";
-            const pm = r["下午狀態"] || "／";
+            const am = r["上午狀態"] || r.amStatus || "／";
+            const pm = r["下午狀態"] || r.pmStatus || "／";
+            const leaveTimeStr = r["請假時間"] || r.leaveTime || "";
             
             let totalWork = 0;
             let totalLeave = 0;
@@ -118,12 +159,12 @@ export default function AttendanceSchedule() {
             else if (currentLeaveType === "喪") currentLeaveType = "喪假";
             else if (currentLeaveType === "公") currentLeaveType = "公假";
 
-            // If the record exists, we use it
             newSchedule[dStr] = {
               ...newSchedule[dStr],
               workHours: totalWork,
               leaveHours: totalLeave,
               leaveType: currentLeaveType,
+              leaveTime: leaveTimeStr,
               isFinalized: String(r["鎖定狀態"] || r["已確認"] || r["isFinalized"]) === "true"
             };
           }
@@ -166,13 +207,9 @@ export default function AttendanceSchedule() {
   const handleSave = async () => {
     if (!user) return;
     
-    // 防呆：檢查總工時是否符合標準（允許加上特休時數? 選項B允許時數不合，但提示）
-    // 依據 Option B，調班總天數維持，但我們在這裡就存入
-    
     setIsSaving(true);
     try {
       const recordsToSave = Object.values(scheduleData).map(record => {
-        // 將 workHours 和 leaveHours 轉回 AM/PM status
         let amStatus = "／";
         let pmStatus = "／";
         
@@ -181,20 +218,18 @@ export default function AttendanceSchedule() {
         } else if (record.workHours === 0 && record.leaveHours === 0) {
           amStatus = ""; pmStatus = "";
         } else {
-          // 有請假或部分工時
           const typePrefix = record.leaveType.charAt(0) === "無" ? "" : record.leaveType.charAt(0);
           
           if (record.leaveHours > 0) {
             if (record.leaveHours <= 4) {
               amStatus = `${typePrefix}${record.leaveHours}`;
-              pmStatus = "／"; // 假設下午正常
+              pmStatus = "／"; 
             } else {
               amStatus = `${typePrefix}4`;
               const pmLeave = record.leaveHours - 4;
               pmStatus = `${typePrefix}${pmLeave}`;
             }
           } else {
-             // 週末加班但時數小於8
              if (record.workHours <= 4) {
                amStatus = "出勤";
                pmStatus = "";
@@ -210,11 +245,13 @@ export default function AttendanceSchedule() {
           "日期": record.date,
           "上午狀態": amStatus,
           "下午狀態": pmStatus,
-          "備註": record.leaveType !== "無" ? record.leaveType : ""
+          "備註": record.leaveType !== "無" ? record.leaveType : "",
+          "請假時間": record.leaveHours > 0 ? record.leaveTime : ""
         };
       });
 
-      const res = await batchUpsertAttendance(recordsToSave);
+      // 確保將 user.email 作為 callerEmail 傳遞
+      const res = await batchUpsertAttendance(user.email, recordsToSave);
       if (res.success) {
         toast.success("班表儲存成功！");
         initMonthData();
@@ -239,6 +276,17 @@ export default function AttendanceSchedule() {
     setDialogWorkHours(record.workHours);
     setDialogLeaveHours(record.leaveHours);
     setDialogLeaveType(record.leaveType || "無");
+    
+    if (record.leaveTime) {
+      const [s, e] = record.leaveTime.split("~");
+      if (s && e) {
+        setDialogLeaveTimeStart(s);
+        setDialogLeaveTimeEnd(e);
+      }
+    } else {
+      setDialogLeaveTimeStart("08:00");
+      setDialogLeaveTimeEnd("12:00");
+    }
   };
 
   const handleDialogSave = () => {
@@ -249,13 +297,16 @@ export default function AttendanceSchedule() {
       return;
     }
 
+    const leaveTimeStr = dialogLeaveHours > 0 ? `${dialogLeaveTimeStart}~${dialogLeaveTimeEnd}` : "";
+
     setScheduleData(prev => ({
       ...prev,
       [selectedDate]: {
         ...prev[selectedDate],
         workHours: dialogWorkHours,
         leaveHours: dialogLeaveHours,
-        leaveType: dialogLeaveHours > 0 ? dialogLeaveType : "無"
+        leaveType: dialogLeaveHours > 0 ? dialogLeaveType : "無",
+        leaveTime: leaveTimeStr
       }
     }));
     
@@ -266,19 +317,18 @@ export default function AttendanceSchedule() {
   const renderCalendar = () => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    const startDate = startOfWeek(monthStart, { weekStartsOn: 1 }); // 週一開始
+    const startDate = startOfWeek(monthStart, { weekStartsOn: 1 }); 
     const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
     const dateFormat = "d";
     const rows = [];
     let days = [];
     let day = startDate;
-    let formattedDate = "";
 
     const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 
     while (day <= endDate) {
       for (let i = 0; i < 7; i++) {
-        formattedDate = format(day, dateFormat);
+        const formattedDate = format(day, dateFormat);
         const dStr = format(day, "yyyy-MM-dd");
         const record = scheduleData[dStr];
         const isCurrentMonth = isSameMonth(day, monthStart);
@@ -354,7 +404,6 @@ export default function AttendanceSchedule() {
 
   return (
     <div className="flex flex-col min-h-full pb-[120px] bg-slate-50/50">
-      {/* Header */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 px-5 py-4 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 shadow-inner">
@@ -384,7 +433,6 @@ export default function AttendanceSchedule() {
         </div>
       </div>
 
-      {/* Bottom Fixed Summary Bar */}
       <div className="fixed bottom-[60px] left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t border-border shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] p-4 z-40">
         <div className="flex justify-between items-center mb-3">
           <div className="flex flex-col gap-1 text-sm font-medium">
@@ -411,68 +459,115 @@ export default function AttendanceSchedule() {
 
       {/* Edit Dialog */}
       <Dialog open={!!selectedDate} onOpenChange={(open) => !open && setSelectedDate(null)}>
-        <DialogContent className="w-[90%] max-w-[400px] rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>設定差勤時數</DialogTitle>
-            <DialogDescription>日期：{selectedDate}</DialogDescription>
-          </DialogHeader>
+        <DialogContent className="w-[90%] max-w-[400px] rounded-3xl p-0 overflow-hidden bg-slate-50">
+          <div className="bg-white px-6 py-5 border-b flex justify-between items-center">
+            <div>
+              <DialogTitle className="text-xl text-slate-800">差勤設定</DialogTitle>
+              <DialogDescription className="text-sm mt-1">{selectedDate}</DialogDescription>
+            </div>
+          </div>
           
-          <div className="space-y-4 py-4">
-             <div className="space-y-2">
-                <Label>上班時數 (小時)</Label>
-                <Input 
-                   type="number" 
-                   min="0" max="8" 
-                   value={dialogWorkHours} 
-                   onChange={e => setDialogWorkHours(Number(e.target.value) || 0)} 
-                />
+          <div className="p-6 space-y-5">
+             {/* 上班卡片 */}
+             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10">
+                  <Briefcase className="w-16 h-16 text-blue-500" />
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                   <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                     <Briefcase className="w-4 h-4" />
+                   </div>
+                   <h3 className="font-bold text-blue-900 text-base">上班時數</h3>
+                </div>
+                <div className="relative z-10 flex items-center gap-4 bg-white/60 p-3 rounded-xl">
+                   <Label className="text-blue-800 flex-1">填寫今日上班幾小時</Label>
+                   <Input 
+                      type="number" 
+                      min="0" max="8" 
+                      className="w-20 font-bold text-lg text-center bg-white border-blue-200 focus-visible:ring-blue-500"
+                      value={dialogWorkHours} 
+                      onChange={e => setDialogWorkHours(Number(e.target.value) || 0)} 
+                   />
+                </div>
              </div>
 
-             <div className="space-y-2">
-                <Label>請假時數 (小時)</Label>
-                <Input 
-                   type="number" 
-                   min="0" max="8" 
-                   value={dialogLeaveHours} 
-                   onChange={e => {
-                     const h = Number(e.target.value) || 0;
-                     setDialogLeaveHours(h);
-                     if (h > 0 && dialogLeaveType === "無") {
-                        setDialogLeaveType("特休");
-                     }
-                   }} 
-                />
+             {/* 請假卡片 */}
+             <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10">
+                  <Palmtree className="w-16 h-16 text-orange-500" />
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                   <div className="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center">
+                     <Palmtree className="w-4 h-4" />
+                   </div>
+                   <h3 className="font-bold text-orange-900 text-base">請假設定</h3>
+                </div>
+                
+                <div className="relative z-10 space-y-3">
+                   <div className="flex items-center gap-4 bg-white/60 p-3 rounded-xl">
+                      <Label className="text-orange-900 flex-1">填寫今日請假時數</Label>
+                      <Input 
+                         type="number" 
+                         min="0" max="8" 
+                         className="w-20 font-bold text-lg text-center bg-white border-orange-200 focus-visible:ring-orange-500"
+                         value={dialogLeaveHours} 
+                         onChange={e => handleLeaveHoursInput(Number(e.target.value) || 0)} 
+                      />
+                   </div>
+
+                   {dialogLeaveHours > 0 && (
+                     <div className="bg-white/60 p-3 rounded-xl space-y-3 border border-orange-100">
+                       <div className="flex items-center gap-2">
+                         <Label className="text-orange-900 w-[60px]">假別</Label>
+                         <Select value={dialogLeaveType} onValueChange={setDialogLeaveType}>
+                           <SelectTrigger className="flex-1 bg-white border-orange-200">
+                             <SelectValue placeholder="選擇假別" />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="特休">特休</SelectItem>
+                             <SelectItem value="事假">事假</SelectItem>
+                             <SelectItem value="病假">病假</SelectItem>
+                             <SelectItem value="公假">公假</SelectItem>
+                             <SelectItem value="婚假">婚假</SelectItem>
+                             <SelectItem value="喪假">喪假</SelectItem>
+                           </SelectContent>
+                         </Select>
+                       </div>
+
+                       <div className="flex items-center gap-2">
+                         <Label className="text-orange-900 w-[60px]">時間</Label>
+                         <div className="flex-1 flex items-center gap-2">
+                           <Select value={dialogLeaveTimeStart} onValueChange={v => handleTimeChange("start", v)}>
+                             <SelectTrigger className="bg-white border-orange-200"><SelectValue/></SelectTrigger>
+                             <SelectContent>
+                               {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                             </SelectContent>
+                           </Select>
+                           <span className="text-orange-400 font-bold">~</span>
+                           <Select value={dialogLeaveTimeEnd} onValueChange={v => handleTimeChange("end", v)}>
+                             <SelectTrigger className="bg-white border-orange-200"><SelectValue/></SelectTrigger>
+                             <SelectContent>
+                               {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                             </SelectContent>
+                           </Select>
+                         </div>
+                       </div>
+                       <p className="text-[10px] text-orange-600/70 pl-[68px]">選擇區間後會自動計算時數 (扣除12:00~13:00休息)</p>
+                     </div>
+                   )}
+                </div>
              </div>
 
-             {dialogLeaveHours > 0 && (
-               <div className="space-y-2">
-                 <Label>請假類別</Label>
-                 <Select value={dialogLeaveType} onValueChange={setDialogLeaveType}>
-                   <SelectTrigger>
-                     <SelectValue placeholder="選擇假別" />
-                   </SelectTrigger>
-                   <SelectContent>
-                     <SelectItem value="特休">特休</SelectItem>
-                     <SelectItem value="事假">事假</SelectItem>
-                     <SelectItem value="病假">病假</SelectItem>
-                     <SelectItem value="公假">公假</SelectItem>
-                     <SelectItem value="婚假">婚假</SelectItem>
-                     <SelectItem value="喪假">喪假</SelectItem>
-                   </SelectContent>
-                 </Select>
-               </div>
-             )}
-
-             <div className="p-3 bg-blue-50 text-blue-800 text-xs rounded-xl flex gap-2 mt-4">
+             <div className="px-1 text-slate-500 text-xs flex gap-2">
                <AlertCircle className="w-4 h-4 shrink-0" />
                <p>若該日為休假不上班，請將上班與請假時數皆設為 0。</p>
              </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedDate(null)}>取消</Button>
-            <Button onClick={handleDialogSave} className="bg-blue-700 hover:bg-blue-800">確認</Button>
-          </DialogFooter>
+          <div className="bg-white px-6 py-4 border-t flex justify-end gap-3">
+            <Button variant="ghost" className="text-slate-500" onClick={() => setSelectedDate(null)}>取消</Button>
+            <Button onClick={handleDialogSave} className="bg-blue-700 hover:bg-blue-800 min-w-[100px] rounded-full shadow-md">確認儲存</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -181,6 +181,7 @@ export interface AttendanceRow {
   source: string;        // 資料來源（auto/planned/actual）
   isFinalized: boolean;  // 是否鎖定
   note: string;          // 備註
+  leaveTime?: string;    // 請假時間 (e.g. 08:00~10:00)
   updatedAt: string;     // 最後更新時間
 }
 
@@ -192,8 +193,8 @@ export async function upsertAttendance(record: Partial<AttendanceRow>): Promise<
   return gasPost<AttendanceRow>("upsertAttendance", { record });
 }
 
-export async function batchUpsertAttendance(records: Partial<AttendanceRow>[]): Promise<GasResponse<any>> {
-  return gasPost<any>("batchUpsertAttendance", { records });
+export async function batchUpsertAttendance(callerEmail: string, records: Partial<AttendanceRow>[]): Promise<GasResponse<any>> {
+  return gasPost<any>("batchUpsertAttendance", { callerEmail, records });
 }
 
 export async function generateMonthlyAttendance(yearMonth: string): Promise<GasResponse<void>> {
