@@ -182,6 +182,7 @@ export interface AttendanceRow {
   isFinalized: boolean;  // 是否鎖定
   note: string;          // 備註
   leaveTime?: string;    // 請假時間 (e.g. 08:00~10:00)
+  modifyReason?: string; // 修改原因
   updatedAt: string;     // 最後更新時間
 }
 

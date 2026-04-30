@@ -46,7 +46,7 @@ const COLUMNS = {
     WORK_HOURS: '有效工時', LEAVE_HOURS: '特休時數',
     SOURCE: '資料來源', IS_FINALIZED: '是否鎖定',
     NOTE: '備註', UPDATED_AT: '最後更新時間',
-    LEAVE_TIME: '請假時間',
+    LEAVE_TIME: '請假時間', MODIFY_REASON: '修改原因',
   },
   DAILY_POINTS: {
     RECORD_ID: '紀錄編號', USER_ID: '人員編號', DATE: '日期',
@@ -712,11 +712,13 @@ function getAttendance(callerEmail, workerId, yearMonth) {
 function upsertAttendance(callerEmail, record) {
   var perm = checkPermission(callerEmail, ['admin','deptMgr','billing','worker']);
   if (!perm.allowed) return { success: false, error: perm.reason };
-  if (!record || !record[COLUMNS.ATTENDANCE.USER_ID] || !record[COLUMNS.ATTENDANCE.DATE]) {
+  var userId = record[COLUMNS.ATTENDANCE.USER_ID] || record['人員編號'] || record['工號'] || record.userId;
+  var targetDateStr = record[COLUMNS.ATTENDANCE.DATE] || record['日期'] || record.date;
+  
+  if (!userId || !targetDateStr) {
     return { success: false, error: '缺少必要欄位（人員編號、日期）' };
   }
 
-  var userId = record[COLUMNS.ATTENDANCE.USER_ID];
   if (perm.callerRole === 'worker' && userId !== perm.callerUserId) {
     return { success: false, error: '只能修改自己的差勤紀錄' };
   }
@@ -732,7 +734,7 @@ function upsertAttendance(callerEmail, record) {
     var dateIdx   = headers.indexOf(COLUMNS.ATTENDANCE.DATE);
     var finalIdx  = headers.indexOf(COLUMNS.ATTENDANCE.IS_FINALIZED);
 
-    var targetDate = String(record[COLUMNS.ATTENDANCE.DATE]);
+    var targetDate = String(targetDateStr);
     var targetRow  = -1;
 
     for (var i = 1; i < data.length; i++) {
@@ -747,10 +749,10 @@ function upsertAttendance(callerEmail, record) {
       }
     }
 
-    var amStatus = record[COLUMNS.ATTENDANCE.AM_STATUS] || '';
-    var pmStatus = record[COLUMNS.ATTENDANCE.PM_STATUS] || '';
+    var amStatus = record[COLUMNS.ATTENDANCE.AM_STATUS] || record['上午狀態'] || record.amStatus || '';
+    var pmStatus = record[COLUMNS.ATTENDANCE.PM_STATUS] || record['下午狀態'] || record.pmStatus || '';
     var workLeave = calcWorkAndLeave(amStatus, pmStatus);
-    var source    = record[COLUMNS.ATTENDANCE.SOURCE] || 'actual';
+    var source    = record[COLUMNS.ATTENDANCE.SOURCE] || record['資料來源'] || record.source || 'actual';
     var now       = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
 
     var row = [
@@ -761,10 +763,11 @@ function upsertAttendance(callerEmail, record) {
       workLeave.workHours,
       workLeave.leaveHours,
       source,
-      (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true'),
-      record[COLUMNS.ATTENDANCE.NOTE] || '',
+      (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true' || record['是否鎖定'] === 'true'),
+      record[COLUMNS.ATTENDANCE.NOTE] || record['備註'] || record.note || '',
       now,
-      record[COLUMNS.ATTENDANCE.LEAVE_TIME] || '',
+      record[COLUMNS.ATTENDANCE.LEAVE_TIME] || record['請假時間'] || record.leaveTime || '',
+      record[COLUMNS.ATTENDANCE.MODIFY_REASON] || record['修改原因'] || record.modifyReason || '',
     ];
 
     if (targetRow > 0) {
@@ -806,12 +809,17 @@ function batchUpsertAttendance(callerEmail, records) {
 
     for (var k = 0; k < records.length; k++) {
       var record = records[k];
-      var userId = record[COLUMNS.ATTENDANCE.USER_ID];
-      if (perm.callerRole === 'worker' && userId !== perm.callerUserId) {
+      var userId = record[COLUMNS.ATTENDANCE.USER_ID] || record['人員編號'] || record['工號'] || record.userId;
+      if (!userId) continue;
+
+      if (perm.callerRole === 'worker' && String(userId) !== String(perm.callerUserId)) {
         continue; // Skip others' records if worker
       }
 
-      var targetDate = String(record[COLUMNS.ATTENDANCE.DATE]);
+      var targetDateStr = record[COLUMNS.ATTENDANCE.DATE] || record['日期'] || record.date;
+      if (!targetDateStr) continue;
+
+      var targetDate = String(targetDateStr);
       var targetRow  = -1;
 
       for (var i = 1; i < data.length; i++) {
@@ -841,10 +849,10 @@ function batchUpsertAttendance(callerEmail, records) {
 
       if (isLocked) continue;
 
-      var amStatus = record[COLUMNS.ATTENDANCE.AM_STATUS] || '';
-      var pmStatus = record[COLUMNS.ATTENDANCE.PM_STATUS] || '';
+      var amStatus = record[COLUMNS.ATTENDANCE.AM_STATUS] || record['上午狀態'] || record.amStatus || '';
+      var pmStatus = record[COLUMNS.ATTENDANCE.PM_STATUS] || record['下午狀態'] || record.pmStatus || '';
       var workLeave = calcWorkAndLeave(amStatus, pmStatus);
-      var source    = record[COLUMNS.ATTENDANCE.SOURCE] || 'actual';
+      var source    = record[COLUMNS.ATTENDANCE.SOURCE] || record['資料來源'] || record.source || 'actual';
 
       var row = [
         userId,
@@ -854,10 +862,11 @@ function batchUpsertAttendance(callerEmail, records) {
         workLeave.workHours,
         workLeave.leaveHours,
         source,
-        (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true'),
-        record[COLUMNS.ATTENDANCE.NOTE] || '',
+        (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true' || record['是否鎖定'] === 'true'),
+        record[COLUMNS.ATTENDANCE.NOTE] || record['備註'] || record.note || '',
         now,
-        record[COLUMNS.ATTENDANCE.LEAVE_TIME] || '',
+        record[COLUMNS.ATTENDANCE.LEAVE_TIME] || record['請假時間'] || record.leaveTime || '',
+        record[COLUMNS.ATTENDANCE.MODIFY_REASON] || record['修改原因'] || record.modifyReason || '',
       ];
 
       if (targetRow > 0) {

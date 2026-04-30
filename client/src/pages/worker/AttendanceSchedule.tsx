@@ -29,6 +29,7 @@ interface DayRecord {
   leaveHours: number;
   leaveType: string;
   leaveTime: string;
+  modifyReason: string;
   isFinalized: boolean;
 }
 
@@ -48,6 +49,7 @@ export default function AttendanceSchedule() {
   const [dialogLeaveType, setDialogLeaveType] = useState<string>("無");
   const [dialogLeaveTimeStart, setDialogLeaveTimeStart] = useState<string>("08:00");
   const [dialogLeaveTimeEnd, setDialogLeaveTimeEnd] = useState<string>("12:00");
+  const [dialogModifyReason, setDialogModifyReason] = useState<string>("");
 
   // 當選擇請假時間後，自動計算請假時數
   const handleTimeChange = (type: "start" | "end", val: string) => {
@@ -115,6 +117,7 @@ export default function AttendanceSchedule() {
           leaveHours: 0,
           leaveType: "無",
           leaveTime: "",
+          modifyReason: "",
           isFinalized: false
         };
       });
@@ -130,6 +133,7 @@ export default function AttendanceSchedule() {
             const am = r["上午狀態"] || r.amStatus || "／";
             const pm = r["下午狀態"] || r.pmStatus || "／";
             const leaveTimeStr = r["請假時間"] || r.leaveTime || "";
+            const modifyReasonStr = r["修改原因"] || r.modifyReason || "";
             
             let totalWork = 0;
             let totalLeave = 0;
@@ -165,6 +169,7 @@ export default function AttendanceSchedule() {
               leaveHours: totalLeave,
               leaveType: currentLeaveType,
               leaveTime: leaveTimeStr,
+              modifyReason: modifyReasonStr,
               isFinalized: String(r["鎖定狀態"] || r["已確認"] || r["isFinalized"]) === "true"
             };
           }
@@ -241,12 +246,13 @@ export default function AttendanceSchedule() {
         }
 
         return {
-          "工號": user.id,
+          "人員編號": user.id, // Updated to match backend column name accurately
           "日期": record.date,
           "上午狀態": amStatus,
           "下午狀態": pmStatus,
           "備註": record.leaveType !== "無" ? record.leaveType : "",
-          "請假時間": record.leaveHours > 0 ? record.leaveTime : ""
+          "請假時間": record.leaveHours > 0 ? record.leaveTime : "",
+          "修改原因": record.modifyReason
         };
       });
 
@@ -276,6 +282,7 @@ export default function AttendanceSchedule() {
     setDialogWorkHours(record.workHours);
     setDialogLeaveHours(record.leaveHours);
     setDialogLeaveType(record.leaveType || "無");
+    setDialogModifyReason(record.modifyReason || "");
     
     if (record.leaveTime) {
       const [s, e] = record.leaveTime.split("~");
@@ -298,6 +305,18 @@ export default function AttendanceSchedule() {
     }
 
     const leaveTimeStr = dialogLeaveHours > 0 ? `${dialogLeaveTimeStart}~${dialogLeaveTimeEnd}` : "";
+    const record = scheduleData[selectedDate];
+    
+    // Check if changed from standard
+    const isStandard = record.isStandardWorkday;
+    const defaultWork = isStandard ? 8 : 0;
+    const defaultLeave = 0;
+    const isChanged = (dialogWorkHours !== defaultWork) || (dialogLeaveHours !== defaultLeave);
+
+    if (isChanged && !dialogModifyReason.trim()) {
+      toast.error("因排班與預設不同，請填寫修改原因");
+      return;
+    }
 
     setScheduleData(prev => ({
       ...prev,
@@ -306,7 +325,8 @@ export default function AttendanceSchedule() {
         workHours: dialogWorkHours,
         leaveHours: dialogLeaveHours,
         leaveType: dialogLeaveHours > 0 ? dialogLeaveType : "無",
-        leaveTime: leaveTimeStr
+        leaveTime: leaveTimeStr,
+        modifyReason: dialogModifyReason
       }
     }));
     
@@ -557,6 +577,34 @@ export default function AttendanceSchedule() {
                    )}
                 </div>
              </div>
+
+             {/* 修改原因卡片 (動態顯示) */}
+             {selectedDate && scheduleData[selectedDate] && (
+               (() => {
+                 const record = scheduleData[selectedDate];
+                 const isStandard = record.isStandardWorkday;
+                 const defaultWork = isStandard ? 8 : 0;
+                 const defaultLeave = 0;
+                 const isChanged = (dialogWorkHours !== defaultWork) || (dialogLeaveHours !== defaultLeave);
+
+                 if (isChanged) {
+                   return (
+                     <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                       <Label className="text-slate-700 font-bold mb-2 block">修改原因 <span className="text-red-500">*</span></Label>
+                       <Input 
+                         type="text" 
+                         placeholder="請說明修改班表的原因 (例如: 加班、調班...)"
+                         className="bg-white border-slate-200"
+                         value={dialogModifyReason}
+                         onChange={e => setDialogModifyReason(e.target.value)}
+                       />
+                       <p className="text-[10px] text-slate-500 mt-2">因您的排班與預設不同，請務必填寫原因</p>
+                     </div>
+                   );
+                 }
+                 return null;
+               })()
+             )}
 
              <div className="px-1 text-slate-500 text-xs flex gap-2">
                <AlertCircle className="w-4 h-4 shrink-0" />
