@@ -437,6 +437,13 @@ function doPost(e) {
       case "upsertAttendance":
         data = saveAttendance(body.data || body);
         break;
+      case "batchUpsertAttendance":
+        if (typeof batchUpsertAttendance === "function") {
+          data = batchUpsertAttendance(body.callerEmail, body.records || body.data || []);
+        } else {
+          data = { success: false, error: "batchUpsertAttendance not implemented here" };
+        }
+        break;
       case "saveDailyPoints":
       case "upsertDailyPoints":
         data = saveDailyPoints(body.data || body);

@@ -1,9 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { ClipboardList, Calendar, BarChart3, User } from "lucide-react";
+import { ClipboardList, Calendar, BarChart3, User, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { path: "/worker/today",    icon: ClipboardList, label: "今日任務" },
+  { path: "/worker/attendance", icon: Clock,      label: "差勤排班" },
   { path: "/worker/calendar", icon: Calendar,      label: "日曆總覽" },
   { path: "/worker/monthly",  icon: BarChart3,     label: "月報填報" },
   { path: "/worker/profile",  icon: User,          label: "我的"     },

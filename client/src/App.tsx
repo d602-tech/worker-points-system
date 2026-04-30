@@ -8,10 +8,10 @@ import { GasAuthContext, useGasAuth } from "./lib/useGasAuth";
 import WorkerLayout from "./layouts/WorkerLayout";
 import AdminLayout from "./layouts/AdminLayout";
 import LandingPage from "./pages/LandingPage";
-// Worker pages
 import TodayTasks from "./pages/worker/TodayTasks";
 import CalendarOverview from "./pages/worker/CalendarOverview";
 import MonthlyReport from "./pages/worker/MonthlyReport";
+import AttendanceSchedule from "./pages/worker/AttendanceSchedule";
 import Profile from "./pages/worker/Profile";
 // Admin pages
 import AdminUsers from "./pages/admin/AdminUsers";
@@ -41,6 +41,13 @@ function Router() {
         {() => (
           <WorkerLayout>
             <TodayTasks />
+          </WorkerLayout>
+        )}
+      </Route>
+      <Route path="/worker/attendance">
+        {() => (
+          <WorkerLayout>
+            <AttendanceSchedule />
           </WorkerLayout>
         )}
       </Route>

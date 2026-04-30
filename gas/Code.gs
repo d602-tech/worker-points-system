@@ -221,6 +221,9 @@ function doPost(e) {
       case 'saveAttendance':
         data = upsertAttendance(body.callerEmail, body.record || body.data || body);
         break;
+      case 'batchUpsertAttendance':
+        data = batchUpsertAttendance(body.callerEmail, body.records || body.data || []);
+        break;
       case 'finalizeAttendance':
         data = finalizeAttendance(body.callerEmail, body.yearMonth);
         break;
@@ -775,19 +778,129 @@ function upsertAttendance(callerEmail, record) {
 }
 
 /**
+ * 批次新增/更新差勤紀錄
+ */
+function batchUpsertAttendance(callerEmail, records) {
+  var perm = checkPermission(callerEmail, ['admin','deptMgr','billing','worker']);
+  if (!perm.allowed) return { success: false, error: perm.reason };
+  if (!records || !Array.isArray(records) || records.length === 0) {
+    return { success: false, error: '缺少紀錄陣列' };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var ss = getAppSpreadsheet();
+    var sheet = ss.getSheetByName(SHEETS.ATTENDANCE);
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var userIdIdx = headers.indexOf(COLUMNS.ATTENDANCE.USER_ID);
+    var dateIdx   = headers.indexOf(COLUMNS.ATTENDANCE.DATE);
+    var finalIdx  = headers.indexOf(COLUMNS.ATTENDANCE.IS_FINALIZED);
+
+    var now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var updatedCount = 0;
+    var newRows = [];
+
+    for (var k = 0; k < records.length; k++) {
+      var record = records[k];
+      var userId = record[COLUMNS.ATTENDANCE.USER_ID];
+      if (perm.callerRole === 'worker' && userId !== perm.callerUserId) {
+        continue; // Skip others' records if worker
+      }
+
+      var targetDate = String(record[COLUMNS.ATTENDANCE.DATE]);
+      var targetRow  = -1;
+
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][userIdIdx]) === String(userId) &&
+            String(data[i][dateIdx])   === targetDate) {
+          if (String(data[i][finalIdx]) === 'true' && perm.callerRole !== 'admin') {
+            break; // Locked, skip
+          }
+          targetRow = i + 1;
+          break;
+        }
+      }
+
+      // If locked and not admin, it was skipped and targetRow is still -1 but we also shouldn't append it if it exists and is locked.
+      // Wait, if it exists and locked, targetRow is -1, but it will be appended? No, we should check if it exists.
+      var isLocked = false;
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][userIdIdx]) === String(userId) &&
+            String(data[i][dateIdx])   === targetDate) {
+          if (String(data[i][finalIdx]) === 'true' && perm.callerRole !== 'admin') {
+            isLocked = true;
+          }
+          targetRow = i + 1;
+          break;
+        }
+      }
+
+      if (isLocked) continue;
+
+      var amStatus = record[COLUMNS.ATTENDANCE.AM_STATUS] || '';
+      var pmStatus = record[COLUMNS.ATTENDANCE.PM_STATUS] || '';
+      var workLeave = calcWorkAndLeave(amStatus, pmStatus);
+      var source    = record[COLUMNS.ATTENDANCE.SOURCE] || 'actual';
+
+      var row = [
+        userId,
+        targetDate,
+        amStatus,
+        pmStatus,
+        workLeave.workHours,
+        workLeave.leaveHours,
+        source,
+        (record[COLUMNS.ATTENDANCE.IS_FINALIZED] === true || record[COLUMNS.ATTENDANCE.IS_FINALIZED] === 'true'),
+        record[COLUMNS.ATTENDANCE.NOTE] || '',
+        now,
+      ];
+
+      if (targetRow > 0) {
+        sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+        // Update data array in memory so subsequent same-date records in the same batch update correctly (though unlikely)
+        data[targetRow - 1] = row;
+        updatedCount++;
+      } else {
+        newRows.push(row);
+      }
+    }
+
+    if (newRows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+      updatedCount += newRows.length;
+    }
+
+    logActivity(callerEmail, 'update', '批次更新差勤：' + updatedCount + ' 筆');
+    return { success: true, message: '已更新 ' + updatedCount + ' 筆差勤紀錄' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
  * 計算有效工時與特休時數
  * 狀態格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠 | （空白）
  */
 function calcWorkAndLeave(amStatus, pmStatus) {
   function parseHours(status) {
-    if (!status || status === '') return { work: 0, leave: 0 };
-    if (status === '／' || status === '出勤') return { work: 4, leave: 0 };
-    if (status.startsWith('代')) return { work: 4, leave: 0 };
-    if (status.startsWith('特')) {
-      var h = parseInt(status.substring(1)) || 4;
-      return { work: 0, leave: h };
+    var s = (status || '').trim();
+    if (!s || s === '') return { work: 0, leave: 0 };
+    if (s === '／' || s === '出勤') return { work: 4, leave: 0 };
+    if (s.startsWith('代')) return { work: 4, leave: 0 };
+    
+    var match = s.match(/^(特|病|事|婚|喪|公)(\d+(\.\d+)?)?$/);
+    if (match) {
+      var type = match[1];
+      var h = parseFloat(match[2]) || 4;
+      var remainingWork = Math.max(0, 4 - h);
+      if (type === '特') {
+        return { work: remainingWork, leave: h };
+      }
+      return { work: remainingWork, leave: 0 };
     }
-    // 病/事/婚/喪/公假視為請假（不計入有效工時）
     return { work: 0, leave: 0 };
   }
   var am = parseHours(amStatus);

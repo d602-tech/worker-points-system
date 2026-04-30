@@ -192,6 +192,10 @@ export async function upsertAttendance(record: Partial<AttendanceRow>): Promise<
   return gasPost<AttendanceRow>("upsertAttendance", { record });
 }
 
+export async function batchUpsertAttendance(records: Partial<AttendanceRow>[]): Promise<GasResponse<any>> {
+  return gasPost<any>("batchUpsertAttendance", { records });
+}
+
 export async function generateMonthlyAttendance(yearMonth: string): Promise<GasResponse<void>> {
   return gasPost<void>("generateMonthlyAttendance", { yearMonth });
 }
