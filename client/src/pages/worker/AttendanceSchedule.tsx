@@ -170,8 +170,8 @@ export default function AttendanceSchedule() {
             let totalLeave = 0;
             let currentLeaveType = "無";
 
-            const parseStatus = (s: string) => {
-              const str = (s || "").trim();
+            const parseStatus = (s: any) => {
+              const str = String(s || "").trim();
               if (str === "／" || str === "出勤" || str.startsWith("代")) return { w: 4, l: 0, t: "無" };
               if (str === "調") return { w: 0, l: 0, t: "調班" };
               const m = str.match(/^(特|病|事|婚|喪|公)(\d+(\.\d+)?)?$/);
@@ -196,8 +196,8 @@ export default function AttendanceSchedule() {
             else if (currentLeaveType === "公") currentLeaveType = "公假";
 
             // 從備註或修改原因恢復調班狀態
-            const noteStr = r["備註"] || r.note || "";
-            if (noteStr === "調班" || modifyReasonStr.includes("調班") || modifyReasonStr.includes("對調") || currentLeaveType === "調班") {
+            const noteStr = String(r["備註"] || r.note || "");
+            if (noteStr === "調班" || String(modifyReasonStr).includes("調班") || String(modifyReasonStr).includes("對調") || currentLeaveType === "調班") {
               currentLeaveType = "調班";
             }
 

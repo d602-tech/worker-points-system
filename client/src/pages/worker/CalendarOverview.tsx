@@ -356,8 +356,8 @@ export default function CalendarOverview() {
 
     if (period !== "workHours") {
       let wh = 8;
-      if (LEAVE_CODES.some(c => newAtt.amStatus && newAtt.amStatus.includes(c))) wh -= 4;
-      if (LEAVE_CODES.some(c => newAtt.pmStatus && newAtt.pmStatus.includes(c))) wh -= 4;
+      if (LEAVE_CODES.some(c => String(newAtt.amStatus || "").includes(c))) wh -= 4;
+      if (LEAVE_CODES.some(c => String(newAtt.pmStatus || "").includes(c))) wh -= 4;
       newAtt.workHours = Math.max(0, wh);
     }
 
@@ -395,8 +395,8 @@ export default function CalendarOverview() {
         if (!isOff) {
           let dayRatio = 1; // 1 = 8h, 0.5 = 4h
           if (att) {
-            if (LEAVE_CODES.some(c => att.amStatus && att.amStatus.includes(c))) dayRatio -= 0.5;
-            if (LEAVE_CODES.some(c => att.pmStatus && att.pmStatus.includes(c))) dayRatio -= 0.5;
+            if (LEAVE_CODES.some(c => String(att.amStatus || "").includes(c))) dayRatio -= 0.5;
+            if (LEAVE_CODES.some(c => String(att.pmStatus || "").includes(c))) dayRatio -= 0.5;
           }
           workDaysCount += Math.max(0, dayRatio);
         }
