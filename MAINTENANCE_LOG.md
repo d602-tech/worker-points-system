@@ -43,5 +43,16 @@
 2.  **API 權限**：所有新增的 `gasGet/gasPost` 調用必須維持 `callerEmail` 的權限檢查機制。
 3.  **效能監控**：隨著 Google Sheets 資料量增加，`getAttendance` 的載入時間可能變長，建議維持目前的 Loading 說明機制以優化 UX。
 
+### 5. 系統穩定性與 UX 修正
+*   **[修正] 差勤日期顯示偏移 (提前一天)**：
+    *   **問題**：Google Apps Script 在 JSON 序列化 Date 物件時會轉為 UTC 格式，導致台北時間 (UTC+8) 的凌晨數據在前端讀取時變為前一天的 16:00，產生日期偏移。
+    *   **解法**：在後端 `getAttendance` 函數回傳前，統一將 Date 物件使用 `Utilities.formatDate` 轉為 `yyyy-MM-dd` 字串，並採用 `ss.getSpreadsheetTimeZone()` 確保時區一致。
+*   **[修正] 月報填報「尚無項目」快閃**：
+    *   **問題**：進入頁面時，因 `isLoading` 初始值為 false 導致短暫顯示空狀態提示。
+    *   **解法**：將 `isLoading` 初始值改為 `true`，並調整判定條件，確保在資料完全載入前維持 Loading 狀態。
+*   **[修正] 程式碼引用錯誤**：
+    *   **問題**：優化日期遞增邏輯時漏掉 `date-fns/addDays` 的引用。
+    *   **解法**：補齊 `AttendanceSchedule.tsx` 的函數引用。
+
 ---
 *記錄者：Antigravity AI (Coding Assistant)*
