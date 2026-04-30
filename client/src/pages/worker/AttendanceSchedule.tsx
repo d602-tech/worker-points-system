@@ -90,7 +90,25 @@ export default function AttendanceSchedule() {
   const handleLeaveHoursInput = (h: number) => {
     setDialogLeaveHours(h);
     if (h > 0 && dialogLeaveType === "無") {
-       setDialogLeaveType("特休");
+      setDialogLeaveType("特休");
+    }
+    
+    // 自動計算請假時間：起始 08:00，跳過 12:00~13:00 午休
+    if (h > 0) {
+      let endHour = 8;
+      let remaining = h;
+      while (remaining > 0 && endHour < 17) {
+        if (endHour === 12) { endHour = 13; continue; }
+        endHour++;
+        remaining--;
+      }
+      setDialogLeaveTimeStart("08:00");
+      setDialogLeaveTimeEnd(`${String(endHour).padStart(2, "0")}:00`);
+    }
+    
+    // 自動調低上班時數
+    if (dialogWorkHours + h > 8) {
+      setDialogWorkHours(Math.max(0, 8 - h));
     }
   };
 
@@ -150,6 +168,7 @@ export default function AttendanceSchedule() {
             const parseStatus = (s: string) => {
               const str = (s || "").trim();
               if (str === "／" || str === "出勤" || str.startsWith("代")) return { w: 4, l: 0, t: "無" };
+              if (str === "調") return { w: 0, l: 0, t: "調班" };
               const m = str.match(/^(特|病|事|婚|喪|公)(\d+(\.\d+)?)?$/);
               if (m) {
                 const h = parseFloat(m[2]) || 4;
@@ -170,6 +189,12 @@ export default function AttendanceSchedule() {
             else if (currentLeaveType === "婚") currentLeaveType = "婚假";
             else if (currentLeaveType === "喪") currentLeaveType = "喪假";
             else if (currentLeaveType === "公") currentLeaveType = "公假";
+
+            // 從備註或修改原因恢復調班狀態
+            const noteStr = r["備註"] || r.note || "";
+            if (noteStr === "調班" || modifyReasonStr.includes("調班") || modifyReasonStr.includes("對調") || currentLeaveType === "調班") {
+              currentLeaveType = "調班";
+            }
 
             newSchedule[dStr] = {
               ...newSchedule[dStr],
@@ -247,6 +272,13 @@ export default function AttendanceSchedule() {
       return;
     }
 
+    // 驗證上班天數不能超過標準天數
+    const scheduledWorkDays = Object.values(scheduleData).filter(r => r.workHours > 0).length;
+    if (scheduledWorkDays > stats.standardDays) {
+      toast.error(`排定上班天數 (${scheduledWorkDays}) 超過標準天數 (${stats.standardDays})，請調整排班`);
+      return;
+    }
+
     setChangesToSave(changes);
     setShowConfirmDialog(true);
   };
@@ -271,10 +303,14 @@ export default function AttendanceSchedule() {
         let amStatus = "／";
         let pmStatus = "／";
         
-        if (record.workHours === 8) {
-          amStatus = "／"; pmStatus = "／";
-        } else if (record.workHours === 0 && record.leaveHours === 0) {
-          amStatus = ""; pmStatus = "";
+        if (record.leaveType === "調班") {
+            // 調班專用編碼
+            if (record.workHours === 0) { amStatus = "調"; pmStatus = "調"; }
+            else { amStatus = "／"; pmStatus = "／"; }
+          } else if (record.workHours === 8) {
+            amStatus = "／"; pmStatus = "／";
+          } else if (record.workHours === 0 && record.leaveHours === 0) {
+            amStatus = ""; pmStatus = "";
         } else {
           const typePrefix = record.leaveType.charAt(0) === "無" ? "" : record.leaveType.charAt(0);
           
@@ -644,7 +680,14 @@ export default function AttendanceSchedule() {
                      <div className="bg-white/60 p-3 rounded-xl space-y-3 border border-orange-100">
                        <div className="flex items-center gap-2">
                          <Label className="text-orange-900 w-[60px]">假別</Label>
-                         <Select value={dialogLeaveType} onValueChange={setDialogLeaveType}>
+                         <Select value={dialogLeaveType} onValueChange={(v) => {
+                            setDialogLeaveType(v);
+                            if (v === "調班") {
+                              setDialogModifyReason("調班");
+                              setDialogLeaveHours(0);
+                              setDialogWorkHours(0);
+                            }
+                          }}>
                            <SelectTrigger className="flex-1 bg-white border-orange-200">
                              <SelectValue placeholder="選擇假別" />
                            </SelectTrigger>

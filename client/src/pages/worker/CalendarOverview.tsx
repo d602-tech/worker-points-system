@@ -1,3 +1,4 @@
+import { useLocation } from "wouter";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   ChevronLeft, ChevronRight, X, Upload, FileText,
@@ -162,6 +163,8 @@ function deriveDayStatus(day: Date, att: AttendanceRow | undefined): DayStatus {
 
 export default function CalendarOverview() {
   const { user } = useGasAuthContext();
+  const [location, setLocation] = useLocation();
+  const [monthlyIncomplete, setMonthlyIncomplete] = useState<{ itemId: string; name: string; category: string }[]>([]);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRow>>({});
   const [loadingMonth, setLoadingMonth] = useState(false);
@@ -294,6 +297,34 @@ export default function CalendarOverview() {
       setTodayPointsSummary({ submitted, total: totalPossible });
     });
   }, [user?.id, user?.workerType, currentMonth]);
+
+  // 載入月報未完成項目
+  useEffect(() => {
+    if (!user?.id) return;
+    const monthStr = format(currentMonth, "yyyy-MM");
+    const wt = user.workerType || "general";
+    
+    gasGet("getMonthlyPoints", { callerEmail: user.email, workerId: user.id, yearMonth: monthStr })
+      .then(res => {
+        const submittedIds = new Set<string>();
+        if (res.success && Array.isArray(res.data)) {
+          res.data.forEach((r: any) => {
+            const st = r["狀態"] || r.status;
+            if (st === "submitted" || st === "approved") {
+              submittedIds.add(r["項目編號"] || r.itemId || r.itemId);
+            }
+          });
+        }
+        
+        const b1b2Incomplete = POINTS_CONFIG_SEED
+          .filter(i => i.workerType === wt && (i.category === "B1" || i.category === "B2"))
+          .filter(i => !submittedIds.has(i.itemId))
+          .map(i => ({ itemId: i.itemId, name: i.name, category: i.category }));
+          
+        setMonthlyIncomplete(b1b2Incomplete);
+      });
+  }, [user?.id, user?.workerType, currentMonth]);
+
   const updateDailyStatus = async (dateStr: string, period: "am" | "pm" | "workHours", val: string) => {
     if (!user?.id) return;
     const isNextMonth = dateStr.startsWith(format(addMonths(currentMonth, 1), "yyyy-MM"));
@@ -546,6 +577,38 @@ export default function CalendarOverview() {
   // 選定日期的差勤記錄
   const selectedAtt = selectedDate ? attendanceMap[selectedDate] : undefined;
   const selectedDayObj = selectedDate ? new Date(selectedDate) : null;
+  
+  const dailyIncomplete = useMemo(() => {
+    return days.filter(day => {
+      const dateStr = format(day, "yyyy-MM-dd");
+      const isPastDay = isBefore(startOfDay(day), startOfDay(new Date()));
+      const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+      const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
+      const att = attendanceMap[dateStr];
+      
+      // 過去的上班日且未填報，或已填報但未上傳佐證且點數為0
+      const isWorkDay = !isWeekend && !isHoliday;
+      if (!isPastDay || !isWorkDay) return false;
+      
+      const status = deriveDayStatus(day, att);
+      const dayPts = dailyPointsMap[dateStr] || 0;
+      const dayHasUpload = dailyUploadsMap[dateStr];
+      
+      const isMissingAttendance = status === "none";
+      const isMissingUpload = att?.amStatus === "出勤" && !dayHasUpload && dayPts === 0;
+      
+      return isMissingAttendance || isMissingUpload;
+    }).map(day => {
+        const dateStr = format(day, "yyyy-MM-dd");
+        const att = attendanceMap[dateStr];
+        const dayHasUpload = dailyUploadsMap[dateStr];
+        const dayPts = dailyPointsMap[dateStr] || 0;
+        let reason = "未填報出勤";
+        if (att?.amStatus === "出勤" && !dayHasUpload && dayPts === 0) reason = "未上傳佐證";
+        return { date: dateStr, day, reason };
+    });
+  }, [days, attendanceMap, dailyPointsMap, dailyUploadsMap]);
+
   const isFinalized = selectedAtt?.isFinalized ?? false;
   const isPast = selectedDayObj ? isBefore(startOfDay(selectedDayObj), startOfDay(new Date())) : false;
   const canLeave = !isFinalized;
@@ -930,6 +993,65 @@ export default function CalendarOverview() {
           })}
         </div>
       </div>
+
+      
+      {/* ── 未完成項目 ── */}
+      {(dailyIncomplete.length > 0 || monthlyIncomplete.length > 0) && (
+        <div className="px-4 pb-4">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 shadow-sm">
+            <div className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              當月未完成項目 ({dailyIncomplete.length + monthlyIncomplete.length})
+            </div>
+            
+            <div className="space-y-4">
+              {dailyIncomplete.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold text-red-500 uppercase tracking-wider mb-2 px-1">📋 每日填報任務</div>
+                  <div className="space-y-2">
+                    {dailyIncomplete.map(item => (
+                      <div key={item.date} className="flex items-center justify-between bg-white/60 rounded-xl p-3 border border-red-100">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">{format(item.day, "M/d (EEE)", { locale: zhTW })}</div>
+                          <div className="text-[10px] text-red-600 font-medium">{item.reason}</div>
+                        </div>
+                        <button 
+                          onClick={() => setLocation("/worker/today")}
+                          className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 active:scale-95 transition-all"
+                        >
+                          前往填報
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {monthlyIncomplete.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold text-red-500 uppercase tracking-wider mb-2 px-1">📊 每月點數任務</div>
+                  <div className="space-y-2">
+                    {monthlyIncomplete.map(item => (
+                      <div key={item.itemId} className="flex items-center justify-between bg-white/60 rounded-xl p-3 border border-red-100">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">{item.name}</div>
+                          <div className="text-[10px] text-red-600 font-medium">未送出 ({item.category})</div>
+                        </div>
+                        <button 
+                          onClick={() => setLocation("/worker/monthly")}
+                          className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 active:scale-95 transition-all"
+                        >
+                          前往月報
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Legend ── */}
       <div className="px-4 pb-4">
