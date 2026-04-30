@@ -544,9 +544,34 @@ export default function MonthlyReport() {
       {/* Items */}
       <div className="flex-1 px-4 py-4 space-y-4 pb-36">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <div className="text-sm text-muted-foreground font-medium">讀取月報資料中...</div>
+          <div className="flex flex-col items-center justify-center py-16 px-8 space-y-6 animate-pulse">
+            <div className="relative">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-6 h-6 bg-white rounded-full shadow-sm flex items-center justify-center border border-blue-100">
+                <FileText className="w-3.5 h-3.5 text-blue-500" />
+              </div>
+            </div>
+            <div className="text-center space-y-2 max-w-[280px]">
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight">正在準備月報表...</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                系統正在從雲端資料庫檢索您的：<br />
+                • 月報例行填報項目清單<br />
+                • 本月每日填報點數彙整<br />
+                • 各項已上傳之佐證附件
+              </p>
+              <div className="pt-2">
+                <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-3 py-1 rounded-full">
+                  請稍候片刻，資料即將呈現
+                </span>
+              </div>
+            </div>
+            {/* 骨架屏效果 */}
+            <div className="w-full space-y-4 opacity-30 pt-4">
+              <div className="h-32 bg-slate-100 rounded-[32px] border border-slate-200" />
+              <div className="h-32 bg-slate-100 rounded-[32px] border border-slate-200" />
+            </div>
           </div>
         ) : items.map(item => {
           const isC = item.category === "C";
