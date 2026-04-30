@@ -686,7 +686,7 @@ function getAttendance(callerEmail, workerId, yearMonth) {
   var records = sheetToObjects(ss.getSheetByName(SHEETS.ATTENDANCE));
 
   records = records.filter(function(r) {
-    var rid = r[COLUMNS.ATTENDANCE.USER_ID];
+    var rid = r[COLUMNS.ATTENDANCE.USER_ID] || r['工號'] || r['userId'] || r['人員編號'];
     if (perm.callerRole === 'worker' && rid !== perm.callerUserId) return false;
     if (workerId && rid !== workerId) return false;
     if (yearMonth) {
