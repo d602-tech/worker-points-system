@@ -2,6 +2,9 @@
 // 115年度協助員點數管理系統 — 業務領域型別定義
 // ============================================================
 
+export const CONTRACT_START = '2026-04-22';
+export const CONTRACT_END = '2027-06-21';
+
 export type SystemRole = 'admin' | 'deptMgr' | 'billing' | 'worker';
 
 export type WorkerType =

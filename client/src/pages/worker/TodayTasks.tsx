@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { format, addDays, subDays, isToday, isBefore, startOfDay, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { safeFormat } from "@/lib/utils";
-import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS } from "../../../../shared/domain";
+import { POINTS_CONFIG_SEED, WORKER_TYPE_LABELS, CONTRACT_START } from "../../../../shared/domain";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getFileIndexByDate, getDriveFolderId, type FileIndexRow } from "@/lib/gasApi";
 
@@ -166,6 +166,7 @@ export default function TodayTasks() {
 
   const dayStatus = getDayStatus(tasks);
   const isFinalized = tasks.every(t => t.status === "submitted" || t.status === "approved");
+  const isBeforeContract = isBefore(startOfDay(currentDate), startOfDay(parseISO(CONTRACT_START)));
   const completedCount = tasks.filter(t => t.completed).length;
   // 已上傳點數：以檔案有 driveFileId 為準（重整後仍可從 getFileIndexByDate 還原）
   const submittedPoints = tasks
@@ -467,6 +468,19 @@ export default function TodayTasks() {
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
             <div className="text-sm text-muted-foreground font-medium">讀取今日任務中...</div>
+          </div>
+        ) : isBeforeContract ? (
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center space-y-4 animate-fade-in">
+            <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center shadow-inner">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-slate-800">尚未進入合約期</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                本案合約自 {CONTRACT_START} 開始。<br />
+                在此日期之前的作業項目不予計點與填報。
+              </p>
+            </div>
           </div>
         ) : isPastFinalized ? (
           /* ── 過去已送出詳情（唯讀）── */

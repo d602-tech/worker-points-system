@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek } from "date-fns";
+import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek, isBefore, parseISO } from "date-fns";
 import { Save, Clock, CalendarDays, AlertCircle, Loader2, Briefcase, Palmtree, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { gasGet, batchUpsertAttendance } from "@/lib/gasApi";
 import { useGasAuthContext } from "@/lib/useGasAuth";
+import { CONTRACT_START } from "../../../../shared/domain";
 
 // 115年國定假日 (2026)
 const HOLIDAYS_2026 = [
@@ -124,6 +125,10 @@ export default function AttendanceSchedule() {
         yearMonth
       });
       
+      if (!res.success) {
+        throw new Error(res.error || "未知錯誤");
+      }
+      
       const newSchedule: Record<string, DayRecord> = {};
       const monthStart = startOfMonth(currentMonth);
       const monthEnd = endOfMonth(currentMonth);
@@ -134,7 +139,7 @@ export default function AttendanceSchedule() {
         const dStr = format(day, "yyyy-MM-dd");
         const isWknd = isWeekend(day);
         const isHol = HOLIDAYS_2026.includes(dStr);
-        const isStandardWorkday = !isWknd && !isHol;
+        const isStandardWorkday = !isWknd && !isHol && !isBefore(day, parseISO(CONTRACT_START));
         
         newSchedule[dStr] = {
           date: dStr,
@@ -211,8 +216,8 @@ export default function AttendanceSchedule() {
       setScheduleData(newSchedule);
       // 深拷貝一份做為原始資料比對使用
       setOriginalScheduleData(JSON.parse(JSON.stringify(newSchedule)));
-    } catch (e) {
-      toast.error("載入差勤資料失敗");
+    } catch (e: any) {
+      toast.error("載入差勤資料失敗: " + (e.message || ""));
     } finally {
       setIsLoading(false);
     }

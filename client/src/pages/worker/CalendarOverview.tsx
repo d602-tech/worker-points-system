@@ -7,7 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
-  isToday, getDay, isBefore, startOfDay, addMonths,
+  isToday, getDay, isBefore, startOfDay, addMonths, parseISO,
 } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { safeFormat } from "@/lib/utils";
@@ -17,7 +17,7 @@ import {
   gasGet, gasPost, getFileIndexByDate, getDriveFolderId,
   type AttendanceRow, type DailyPointRow, type FileIndexRow,
 } from "@/lib/gasApi";
-import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
+import { POINTS_CONFIG_SEED, CONTRACT_START } from "../../../../shared/domain";
 
 // ============================================================
 // 工具函式
@@ -385,7 +385,8 @@ export default function CalendarOverview() {
       const dateStr = format(d, "yyyy-MM-dd");
       const isWeekend = getDay(d) === 0 || getDay(d) === 6;
       const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
-      const isOff = isWeekend || isHoliday;
+      const isBeforeContract = isBefore(d, parseISO(CONTRACT_START));
+      const isOff = isWeekend || isHoliday || isBeforeContract;
       
       const att = attendanceMap[dateStr];
       if (att && att.workHours !== undefined) {
@@ -584,10 +585,11 @@ export default function CalendarOverview() {
       const isPastDay = isBefore(startOfDay(day), startOfDay(new Date()));
       const isWeekend = getDay(day) === 0 || getDay(day) === 6;
       const isHoliday = TW_HOLIDAYS_2026.has(dateStr);
+      const isBeforeContract = isBefore(day, parseISO(CONTRACT_START));
       const att = attendanceMap[dateStr];
       
       // 過去的上班日且未填報，或已填報但未上傳佐證且點數為0
-      const isWorkDay = !isWeekend && !isHoliday;
+      const isWorkDay = !isWeekend && !isHoliday && !isBeforeContract;
       if (!isPastDay || !isWorkDay) return false;
       
       const status = deriveDayStatus(day, att);
