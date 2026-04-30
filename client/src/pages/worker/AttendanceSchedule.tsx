@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isSameMonth, startOfWeek, endOfWeek } from "date-fns";
-import { Save, Clock, CalendarDays, AlertCircle, Loader2, Briefcase, Palmtree } from "lucide-react";
+import { Save, Clock, CalendarDays, AlertCircle, Loader2, Briefcase, Palmtree, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -31,6 +31,7 @@ interface DayRecord {
   leaveTime: string;
   modifyReason: string;
   isFinalized: boolean;
+  swapDate?: string;
 }
 
 export default function AttendanceSchedule() {
@@ -55,6 +56,7 @@ export default function AttendanceSchedule() {
   const [dialogLeaveTimeStart, setDialogLeaveTimeStart] = useState<string>("08:00");
   const [dialogLeaveTimeEnd, setDialogLeaveTimeEnd] = useState<string>("12:00");
   const [dialogModifyReason, setDialogModifyReason] = useState<string>("");
+  const [dialogSwapDate, setDialogSwapDate] = useState<string>("");
 
   // 當選擇請假時間後，自動計算請假時數
   const handleTimeChange = (type: "start" | "end", val: string) => {
@@ -99,6 +101,7 @@ export default function AttendanceSchedule() {
     try {
       const yearMonth = format(currentMonth, "yyyy-MM");
       const res = await gasGet<any>("getAttendance", {
+        callerEmail: user.email,
         workerId: user.id,
         yearMonth
       });
@@ -254,7 +257,17 @@ export default function AttendanceSchedule() {
     setShowConfirmDialog(false);
     setIsSaving(true);
     try {
-      const recordsToSave = Object.values(scheduleData).map(record => {
+      // 只送出有實質變更的天數，避免全月重寫
+      const recordsToSave = Object.values(scheduleData)
+        .filter(record => {
+          const orig = originalScheduleData[record.date];
+          if (!orig) return true;
+          return record.workHours !== orig.workHours
+            || record.leaveHours !== orig.leaveHours
+            || record.leaveType !== orig.leaveType
+            || record.modifyReason !== orig.modifyReason;
+        })
+        .map(record => {
         let amStatus = "／";
         let pmStatus = "／";
         
@@ -323,6 +336,7 @@ export default function AttendanceSchedule() {
     setDialogLeaveHours(record.leaveHours);
     setDialogLeaveType(record.leaveType || "無");
     setDialogModifyReason(record.modifyReason || "");
+    setDialogSwapDate("");
     
     if (record.leaveTime) {
       const [s, e] = record.leaveTime.split("~");
@@ -336,9 +350,60 @@ export default function AttendanceSchedule() {
     }
   };
 
+  // 取得當月所有假日（週末+國定假日）供調班選擇
+  const availableHolidays = useMemo(() => {
+    const monthStart2 = startOfMonth(currentMonth);
+    const monthEnd2 = endOfMonth(currentMonth);
+    const allDays = eachDayOfInterval({ start: monthStart2, end: monthEnd2 });
+    return allDays.filter(d => {
+      const dStr = format(d, "yyyy-MM-dd");
+      const rec = scheduleData[dStr];
+      // 是假日且尚未被調班成上班日
+      return rec && !rec.isStandardWorkday && rec.workHours === 0;
+    }).map(d => format(d, "yyyy-MM-dd"));
+  }, [currentMonth, scheduleData]);
+
   const handleDialogSave = () => {
     if (!selectedDate) return;
     
+    // 調班邏輯
+    if (dialogLeaveType === "調班") {
+      if (!dialogSwapDate) {
+        toast.error("請選擇要對調的假日日期");
+        return;
+      }
+      if (!dialogModifyReason.trim()) {
+        toast.error("調班請務必填寫原因");
+        return;
+      }
+      setScheduleData(prev => ({
+        ...prev,
+        // 原上班日 → 休假
+        [selectedDate]: {
+          ...prev[selectedDate],
+          workHours: 0,
+          leaveHours: 0,
+          leaveType: "調班",
+          leaveTime: "",
+          modifyReason: `${dialogModifyReason}（與 ${dialogSwapDate} 對調）`,
+          swapDate: dialogSwapDate
+        },
+        // 選定假日 → 上班
+        [dialogSwapDate]: {
+          ...prev[dialogSwapDate],
+          workHours: 8,
+          leaveHours: 0,
+          leaveType: "調班",
+          leaveTime: "",
+          modifyReason: `${dialogModifyReason}（與 ${selectedDate} 對調）`,
+          swapDate: selectedDate
+        }
+      }));
+      setSelectedDate(null);
+      toast.success(`已將 ${selectedDate} 與 ${dialogSwapDate} 對調`);
+      return;
+    }
+
     if (dialogWorkHours + dialogLeaveHours > 8) {
       toast.error("單日總時數(上班+請假)不可超過 8 小時");
       return;
@@ -397,7 +462,10 @@ export default function AttendanceSchedule() {
         let textColorClass = "text-foreground";
         
         if (record && isCurrentMonth) {
-           if (record.workHours > 0) {
+           if (record.leaveType === "調班") {
+             bgColorClass = "bg-purple-100 border-purple-300";
+             textColorClass = "text-purple-900 font-medium";
+           } else if (record.workHours > 0) {
              bgColorClass = "bg-blue-100 border-blue-300";
              textColorClass = "text-blue-900 font-medium";
            } else if (record.workHours === 0 && !record.isStandardWorkday && record.leaveHours === 0) {
@@ -433,7 +501,8 @@ export default function AttendanceSchedule() {
               <div className="mt-1 flex flex-col gap-0.5 text-[10px] text-center font-medium opacity-80">
                 {record.workHours > 0 && <div>班 {record.workHours}h</div>}
                 {record.leaveHours > 0 && <div className="text-orange-600">{record.leaveType} {record.leaveHours}h</div>}
-                {record.workHours === 0 && record.leaveHours === 0 && <div>休</div>}
+                {record.leaveType === "調班" && <div className="text-purple-600">↔ 調班</div>}
+                {record.workHours === 0 && record.leaveHours === 0 && record.leaveType !== "調班" && <div>休</div>}
               </div>
             )}
           </div>
@@ -523,7 +592,7 @@ export default function AttendanceSchedule() {
             </div>
           </div>
           
-          <div className="p-6 space-y-5">
+          <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
              {/* 上班卡片 */}
              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-10">
@@ -586,6 +655,7 @@ export default function AttendanceSchedule() {
                              <SelectItem value="公假">公假</SelectItem>
                              <SelectItem value="婚假">婚假</SelectItem>
                              <SelectItem value="喪假">喪假</SelectItem>
+                           <SelectItem value="調班">調班（與假日對調）</SelectItem>
                            </SelectContent>
                          </Select>
                        </div>
@@ -613,6 +683,37 @@ export default function AttendanceSchedule() {
                    )}
                 </div>
              </div>
+             {/* 調班卡片 (選擇調班時顯示) */}
+             {dialogLeaveType === "調班" && (
+               <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 shadow-sm">
+                 <div className="flex items-center gap-2 mb-3">
+                   <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center">
+                     <ArrowLeftRight className="w-4 h-4" />
+                   </div>
+                   <h3 className="font-bold text-purple-900 text-base">選擇對調假日</h3>
+                 </div>
+                 <p className="text-xs text-purple-700 mb-2">
+                   將本日（上班日）與下方選擇的假日對調：本日改為休假，選定假日改為上班。
+                 </p>
+                 <Select value={dialogSwapDate} onValueChange={setDialogSwapDate}>
+                   <SelectTrigger className="bg-white border-purple-200">
+                     <SelectValue placeholder="請選擇要對調的假日" />
+                   </SelectTrigger>
+                   <SelectContent>
+                     {availableHolidays.length === 0 && (
+                       <SelectItem value="_none" disabled>本月無可對調的假日</SelectItem>
+                     )}
+                     {availableHolidays.map(h => {
+                       const d = new Date(h);
+                       const dayNames = ["日", "一", "二", "三", "四", "五", "六"];
+                       const isHol = HOLIDAYS_2026.includes(h);
+                       const label = h + " (" + dayNames[d.getDay()] + (isHol ? " 國定假日" : " 週末") + ")";
+                       return <SelectItem key={h} value={h}>{label}</SelectItem>;
+                     })}
+                   </SelectContent>
+                 </Select>
+               </div>
+             )}
 
              {/* 修改原因卡片 (動態顯示) */}
              {selectedDate && scheduleData[selectedDate] && (

@@ -734,12 +734,16 @@ function upsertAttendance(callerEmail, record) {
     var dateIdx   = headers.indexOf(COLUMNS.ATTENDANCE.DATE);
     var finalIdx  = headers.indexOf(COLUMNS.ATTENDANCE.IS_FINALIZED);
 
-    var targetDate = String(targetDateStr);
+    var targetDate = String(targetDateStr).substring(0, 10);
     var targetRow  = -1;
 
     for (var i = 1; i < data.length; i++) {
+      var sheetDate = data[i][dateIdx];
+      var sheetDateStr = (sheetDate instanceof Date)
+        ? Utilities.formatDate(sheetDate, 'Asia/Taipei', 'yyyy-MM-dd')
+        : String(sheetDate).substring(0, 10);
       if (String(data[i][userIdIdx]) === String(userId) &&
-          String(data[i][dateIdx])   === targetDate) {
+          sheetDateStr === targetDate) {
         // 已鎖定不可修改
         if (String(data[i][finalIdx]) === 'true' && perm.callerRole !== 'admin') {
           return { success: false, error: '差勤已鎖定，無法修改' };
@@ -819,26 +823,17 @@ function batchUpsertAttendance(callerEmail, records) {
       var targetDateStr = record[COLUMNS.ATTENDANCE.DATE] || record['日期'] || record.date;
       if (!targetDateStr) continue;
 
-      var targetDate = String(targetDateStr);
+      var targetDate = String(targetDateStr).substring(0, 10);
       var targetRow  = -1;
-
-      for (var i = 1; i < data.length; i++) {
-        if (String(data[i][userIdIdx]) === String(userId) &&
-            String(data[i][dateIdx])   === targetDate) {
-          if (String(data[i][finalIdx]) === 'true' && perm.callerRole !== 'admin') {
-            break; // Locked, skip
-          }
-          targetRow = i + 1;
-          break;
-        }
-      }
-
-      // If locked and not admin, it was skipped and targetRow is still -1 but we also shouldn't append it if it exists and is locked.
-      // Wait, if it exists and locked, targetRow is -1, but it will be appended? No, we should check if it exists.
       var isLocked = false;
+
       for (var i = 1; i < data.length; i++) {
+        var sheetDate = data[i][dateIdx];
+        var sheetDateStr = (sheetDate instanceof Date)
+          ? Utilities.formatDate(sheetDate, 'Asia/Taipei', 'yyyy-MM-dd')
+          : String(sheetDate).substring(0, 10);
         if (String(data[i][userIdIdx]) === String(userId) &&
-            String(data[i][dateIdx])   === targetDate) {
+            sheetDateStr === targetDate) {
           if (String(data[i][finalIdx]) === 'true' && perm.callerRole !== 'admin') {
             isLocked = true;
           }
@@ -1011,7 +1006,10 @@ function finalizeAttendance(callerEmail, yearMonth) {
 
     var updated = 0;
     for (var i = 1; i < data.length; i++) {
-      var d = String(data[i][dateIdx]);
+      var rawDate = data[i][dateIdx];
+      var d = (rawDate instanceof Date)
+        ? Utilities.formatDate(rawDate, 'Asia/Taipei', 'yyyy-MM-dd')
+        : String(rawDate).substring(0, 10);
       if (d.startsWith(ym)) {
         sheet.getRange(i + 1, finalIdx + 1).setValue(true);
         updated++;
