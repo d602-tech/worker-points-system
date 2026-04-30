@@ -135,10 +135,15 @@ export default function ReportFee() {
   const attendanceRate = totalExpectedHours > 0 ? (stats.actualWorkHoursSum / totalExpectedHours) : 0;
   const proratedRatio = dContract / dTotal;
 
+  const fee_gen = Math.round(stats.general * proratedRatio);
+  const fee_off = Math.round(stats.offshore * proratedRatio);
+  const fee_saf = Math.round(stats.safety * proratedRatio);
+  const fee_env = Math.round(stats.environment * proratedRatio);
+
   const fixedFee = Math.round((1632400 / 14) * (stats.actualWorkerCount / 11) * proratedRatio);
   const adminFee = Math.round((805000 / 14) * attendanceRate * proratedRatio);
 
-  const total_direct = stats.general + stats.offshore + stats.safety + stats.environment + fixedFee;
+  const total_direct = fee_gen + fee_off + fee_saf + fee_env + fixedFee;
   const total_manage = customFees.edu + adminFee + customFees.cloud + customFees.ppe;
   const subtotal = total_direct + total_manage + stats.leaveS - stats.penaltyP;
   const tax = Math.round(subtotal * 0.05);
@@ -205,25 +210,25 @@ export default function ReportFee() {
             <tr>
               <td className="border border-foreground p-2 pl-6 w-1/2">(一) 一般協助員</td>
               <td className="border border-foreground p-2 text-center text-muted-foreground w-16">式</td>
-              <td className="border border-foreground text-right p-2">{stats.general.toLocaleString()}</td>
+              <td className="border border-foreground text-right p-2">{fee_gen.toLocaleString()}</td>
               <td className="border border-foreground p-2 text-xs text-muted-foreground"></td>
             </tr>
             <tr>
               <td className="border border-foreground p-2 pl-6">(二) 離島地區協助員</td>
               <td className="border border-foreground p-2 text-center text-muted-foreground">式</td>
-              <td className="border border-foreground text-right p-2">{stats.offshore.toLocaleString()}</td>
+              <td className="border border-foreground text-right p-2">{fee_off.toLocaleString()}</td>
               <td className="border border-foreground p-2 text-xs text-muted-foreground"></td>
             </tr>
             <tr>
               <td className="border border-foreground p-2 pl-6">(三) 職安管理協助員</td>
               <td className="border border-foreground p-2 text-center text-muted-foreground">式</td>
-              <td className="border border-foreground text-right p-2">{stats.safety.toLocaleString()}</td>
+              <td className="border border-foreground text-right p-2">{fee_saf.toLocaleString()}</td>
               <td className="border border-foreground p-2 text-xs text-muted-foreground"></td>
             </tr>
             <tr>
               <td className="border border-foreground p-2 pl-6">(四) 環保管理協助員</td>
               <td className="border border-foreground p-2 text-center text-muted-foreground">式</td>
-              <td className="border border-foreground text-right p-2">{stats.environment.toLocaleString()}</td>
+              <td className="border border-foreground text-right p-2">{fee_env.toLocaleString()}</td>
               <td className="border border-foreground p-2 text-xs text-muted-foreground"></td>
             </tr>
             <tr>

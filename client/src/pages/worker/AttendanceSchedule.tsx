@@ -41,6 +41,11 @@ export default function AttendanceSchedule() {
   
   // 以 YYYY-MM-DD 為 key 的每日資料
   const [scheduleData, setScheduleData] = useState<Record<string, DayRecord>>({});
+  const [originalScheduleData, setOriginalScheduleData] = useState<Record<string, DayRecord>>({});
+  
+  // 儲存確認對話框狀態
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [changesToSave, setChangesToSave] = useState<{date: string; diff: string; reason: string}[]>([]);
   
   // 對話框狀態
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -176,6 +181,8 @@ export default function AttendanceSchedule() {
         });
       }
       setScheduleData(newSchedule);
+      // 深拷貝一份做為原始資料比對使用
+      setOriginalScheduleData(JSON.parse(JSON.stringify(newSchedule)));
     } catch (e) {
       toast.error("載入差勤資料失敗");
     } finally {
@@ -209,9 +216,42 @@ export default function AttendanceSchedule() {
     };
   }, [scheduleData]);
 
-  const handleSave = async () => {
+  const handleSaveClick = () => {
+    const changes: {date: string; diff: string; reason: string}[] = [];
+    Object.keys(scheduleData).forEach(date => {
+      const current = scheduleData[date];
+      const original = originalScheduleData[date];
+      
+      // 比對是否有實質修改
+      if (
+        current.workHours !== original?.workHours ||
+        current.leaveHours !== original?.leaveHours ||
+        current.leaveType !== original?.leaveType
+      ) {
+        const oldStatus = original?.workHours === 8 ? "正常上班" : (original?.workHours === 0 && original?.leaveHours === 0 ? "休假" : `上班 ${original?.workHours}h / ${original?.leaveType} ${original?.leaveHours}h`);
+        const newStatus = current.workHours === 8 ? "正常上班" : (current.workHours === 0 && current.leaveHours === 0 ? "休假" : `上班 ${current.workHours}h / ${current.leaveType} ${current.leaveHours}h`);
+        
+        changes.push({
+          date,
+          diff: `從「${oldStatus}」改為「${newStatus}」`,
+          reason: current.modifyReason || "無填寫"
+        });
+      }
+    });
+
+    if (changes.length === 0) {
+      toast.info("排班資料無異動，不需儲存");
+      return;
+    }
+
+    setChangesToSave(changes);
+    setShowConfirmDialog(true);
+  };
+
+  const executeSave = async () => {
     if (!user) return;
     
+    setShowConfirmDialog(false);
     setIsSaving(true);
     try {
       const recordsToSave = Object.values(scheduleData).map(record => {
@@ -466,13 +506,9 @@ export default function AttendanceSchedule() {
               </div>
             )}
           </div>
-          <Button 
-            className="bg-blue-700 hover:bg-blue-800 shadow-md gap-2" 
-            onClick={handleSave} 
-            disabled={isSaving || isLoading}
-          >
+          <Button className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={handleSaveClick} disabled={isSaving || isLoading}>
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            儲存班表
+            {isSaving ? "儲存中..." : "儲存排班"}
           </Button>
         </div>
       </div>
@@ -614,8 +650,37 @@ export default function AttendanceSchedule() {
 
           <div className="bg-white px-6 py-4 border-t flex justify-end gap-3">
             <Button variant="ghost" className="text-slate-500" onClick={() => setSelectedDate(null)}>取消</Button>
-            <Button onClick={handleDialogSave} className="bg-blue-700 hover:bg-blue-800 min-w-[100px] rounded-full shadow-md">確認儲存</Button>
+            <Button onClick={handleDialogSave} className="bg-blue-700 hover:bg-blue-800">確認修改</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 儲存確認對話框 */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>確認儲存排班異動</DialogTitle>
+            <DialogDescription>
+              以下是您本次修改的差勤紀錄，確認無誤後將送出並記錄於系統中。
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="max-h-[300px] overflow-y-auto space-y-3 py-2">
+            {changesToSave.map((change, idx) => (
+              <div key={idx} className="p-3 bg-muted/40 rounded-lg border border-border/50 text-sm">
+                <div className="font-bold text-foreground mb-1">{change.date}</div>
+                <div className="text-blue-700">{change.diff}</div>
+                <div className="text-muted-foreground mt-1 text-xs">修改原因：{change.reason}</div>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>取消</Button>
+            <Button onClick={executeSave} className="bg-blue-700 hover:bg-blue-800 gap-1.5">
+              <Save className="w-4 h-4" /> 確認並送出
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
