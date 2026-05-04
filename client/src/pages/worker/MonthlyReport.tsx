@@ -11,6 +11,7 @@ import { zhTW } from "date-fns/locale";
 
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getDriveFolderId } from "@/lib/gasApi";
+import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
 
 // ============================================================
 // 工具函式
@@ -80,26 +81,17 @@ export default function MonthlyReport() {
 
   // ── 狀態宣告（必須在 useMemo 之前） ──
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [pointsConfig, setPointsConfig] = useState<any[]>([]);
+  // 改為同步 import，消除動態 import 造成的三段載入 race condition
   const [items, setItems] = useState<MonthlyItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // ── 動態匯入點數設定，避免循環依賴 ──
-  useEffect(() => {
-    let cancelled = false;
-    import("../../../../shared/domain").then((mod) => {
-      if (!cancelled) setPointsConfig(mod.POINTS_CONFIG_SEED);
-    }).catch((e) => console.error("載入點數設定失敗", e));
-    return () => { cancelled = true; };
-  }, []);
-
-  // ── 月報項目定義（依賴 pointsConfig、currentMonth） ──
+  // ── 月報項目定義（直接使用靜態 POINTS_CONFIG_SEED，不再需要非同步載入）──
   const monthlyItemDefs = useMemo(() => {
     const monthStr = format(currentMonth, "yyyy-MM");
     const isCnyMonth = monthStr === "2026-02";
-    return pointsConfig
+    return POINTS_CONFIG_SEED
       .filter((item: any) =>
         item.workerType === workerType &&
         (item.category === "B1" || item.category === "B2" || item.category === "C"),
@@ -108,7 +100,7 @@ export default function MonthlyReport() {
         if (item.category === "B2") return isCnyMonth;
         return true;
       });
-  }, [workerType, currentMonth, pointsConfig]);
+  }, [workerType, currentMonth]);
   const [resubmitNoteMap, setResubmitNoteMap] = useState<Record<string, string>>({});
 
   // File input refs per item
@@ -132,7 +124,8 @@ export default function MonthlyReport() {
 
   // 載入月報資料
   useEffect(() => {
-    if (!user?.id) return;
+    // monthlyItemDefs 尚未就緒時（理論上不會發生，因為是同步計算）或 user 未登入則跳過
+    if (!user?.id || monthlyItemDefs.length === 0) return;
     setIsLoading(true);
     const monthStr = format(currentMonth, "yyyy-MM");
 

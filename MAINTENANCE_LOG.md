@@ -1,6 +1,17 @@
 # 115年度綜合施工處職安環保協助員系統 — 維護更新日誌
 
+## 📅 2026-05-04 更新記錄 (v3.2.5 -> v3.2.6)
+
+### 1. 日曆總覽 (CalendarOverview) — 偶發性 TypeError 修復
+*   **[修正] `startsWith` of undefined 錯誤**：`deriveDayStatus` 函式中，當後端回傳的 `AttendanceRow.amStatus` 或 `pmStatus` 為 `undefined`/`null` 時，直接呼叫 `.startsWith()` 會拋出 TypeError。新增 `String(value ?? "")` 的 null-safe 轉型，確保任何資料狀態下均不崩潰。
+
+### 2. 月報填報 (MonthlyReport) — 初始載入閃爍修復
+*   **[修正] 先閃爍「尚無可填報項目」約 2 秒**：根因為 `POINTS_CONFIG_SEED` 使用動態 `import()` 載入，初始值為空陣列，導致載入 useEffect 在 `monthlyItemDefs = []` 時提早觸發一次，API 回傳後設為空 items 並關閉 loading，畫面閃爍「無項目」訊息。改為與 `CalendarOverview` 相同的**靜態 `import`**，消除三段非同步 race condition，載入流程從三段縮為一段，閃爍完全消失。
+
+---
+
 ## 📅 2026-04-30 更新記錄 (v3.2.x -> v3.2.5)
+
 
 ### 1. 差勤排班模組 (AttendanceSchedule)
 *   **[修正] 調班持久化失敗**：修復調班狀態重新整理後消失問題，實作 `amStatus="調"` 編碼與自動還原。

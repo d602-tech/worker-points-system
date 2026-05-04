@@ -150,10 +150,13 @@ function deriveDayStatus(day: Date, att: AttendanceRow | undefined): DayStatus {
   if (dow === 0 || dow === 6) return "holiday";
   if (!att) return "none";
   const { amStatus, pmStatus, isFinalized } = att;
-  const hasLeave = LEAVE_CODES.some(c => amStatus.startsWith(c) || pmStatus.startsWith(c));
+  // null-safe 轉型，避免 amStatus/pmStatus 為 undefined 時 .startsWith() 拋出 TypeError
+  const am = String(amStatus ?? "");
+  const pm = String(pmStatus ?? "");
+  const hasLeave = LEAVE_CODES.some(c => am.startsWith(c) || pm.startsWith(c));
   if (hasLeave) return "leave";
   if (isFinalized) return "approved";
-  if (amStatus || pmStatus) return "submitted";
+  if (am || pm) return "submitted";
   return "none";
 }
 
