@@ -246,7 +246,8 @@ function doPost(e) {
       case 'reviewItem':
       case 'reviewMonthlyReport':
         data = reviewItem(body.callerEmail, body.action2 || body.reviewAction,
-                          body.workerId, body.yearMonth, body.reason || '');
+                          body.workerId, body.yearMonth, body.reason || '',
+                          body.perfLevel, body.points);
         break;
       case 'uploadFileToDrive':
         data = uploadFileToDrive(body.callerEmail, body.base64Data,
@@ -688,6 +689,14 @@ function getAttendance(callerEmail, workerId, yearMonth) {
   records = records.filter(function(r) {
     var rid = r[COLUMNS.ATTENDANCE.USER_ID] || r['工號'] || r['userId'] || r['人員編號'];
     if (perm.callerRole === 'worker' && rid !== perm.callerUserId) return false;
+    
+    // deptMgr 只能查本部門
+    if (perm.callerRole === 'deptMgr') {
+      var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+      var worker  = workers.find(function(w) { return w[COLUMNS.USERS.ID] === rid; });
+      if (!worker || worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) return false;
+    }
+
     if (workerId && rid !== workerId) return false;
     if (yearMonth) {
       var rawDate = r[COLUMNS.ATTENDANCE.DATE];
@@ -1227,6 +1236,14 @@ function getMonthlyPoints(callerEmail, workerId, yearMonth) {
   records = records.filter(function(r) {
     var uid = r[COLUMNS.MONTHLY_POINTS.USER_ID];
     if (perm.callerRole === 'worker' && uid !== perm.callerUserId) return false;
+
+    // deptMgr 只能查本部門
+    if (perm.callerRole === 'deptMgr') {
+      var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+      var worker  = workers.find(function(w) { return w[COLUMNS.USERS.ID] === uid; });
+      if (!worker || worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) return false;
+    }
+
     if (workerId && uid !== workerId) return false;
     var sheetYM = r[COLUMNS.MONTHLY_POINTS.YEAR_MONTH];
     if (sheetYM instanceof Date) sheetYM = Utilities.formatDate(sheetYM, 'Asia/Taipei', 'yyyy-MM');
@@ -1387,7 +1404,7 @@ function submitMonthlyReport(callerEmail, workerId, yearMonth) {
  * 審核動作
  * action2: '初審通過' | '退回修改' | '廠商確認' | '廠商退回' | '已請款'
  */
-function reviewItem(callerEmail, action2, workerId, yearMonth, reason) {
+function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel, points) {
   if (!action2) return { success: false, error: '缺少審核動作' };
 
   // 驗證角色與動作合法性
@@ -1407,12 +1424,39 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason) {
   lock.waitLock(15000);
   try {
     var ss = getAppSpreadsheet();
+
+    // deptMgr 只能核定本部門的人員
+    if (perm.callerRole === 'deptMgr') {
+      var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+      var targetWorker = workers.find(function(w) { return w[COLUMNS.USERS.ID] === workerId; });
+      if (!targetWorker || targetWorker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) {
+        return { success: false, error: '權限錯誤：無法核定非本部門人員' };
+      }
+    }
+
+    var body = {};
+    try {
+      // 嘗試從請求中取得額外參數 (如果是透過 doPost 傳入)
+      // 但 reviewItem 是被 doPost 呼叫的，參數已經展開
+    } catch(_) {}
+
     var newStatus = actionToStatus(action2);
     var before = getCurrentStatus(ss, workerId, yearMonth);
 
+    // 處理 C 類績效核定 (若有傳入評等與點數)
+    // 注意：這裡假設 reviewItem 可能透過 e.parameter (GET) 或 body (POST) 呼叫
+    // 在本系統中 reviewItem 主要透過 doPost 呼叫，但我們需要確保參數能傳入
+    // 修改 reviewItem 的宣告以支援更多參數：reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel, points)
+    
     updatePointsStatus(ss, workerId, yearMonth, newStatus);
+
+    // 處理 C 類績效核定 (由 deptMgr 在初審時設定)
+    if (perfLevel && (action2 === '初審通過' || action2 === 'admin_save')) {
+      updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points);
+    }
+
     writeReviewLog(ss, workerId, yearMonth, perm.callerUserId, action2, reason,
-                   JSON.stringify({ before: before, after: newStatus }));
+                   JSON.stringify({ before: before, after: newStatus, perfLevel: perfLevel, points: points }));
 
     // 廠商確認時自動產生月結快照
     if (action2 === '廠商確認') {
@@ -1425,6 +1469,34 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason) {
     return { success: true, message: '審核動作完成：' + action2 };
   } finally {
     lock.releaseLock();
+  }
+}
+
+function updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points) {
+  var sheet = ss.getSheetByName(SHEETS.MONTHLY_POINTS);
+  var data  = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var uidIdx  = headers.indexOf(COLUMNS.MONTHLY_POINTS.USER_ID);
+  var ymIdx   = headers.indexOf(COLUMNS.MONTHLY_POINTS.YEAR_MONTH);
+  var itemIdx = headers.indexOf(COLUMNS.MONTHLY_POINTS.ITEM_ID);
+  var perfIdx = headers.indexOf(COLUMNS.MONTHLY_POINTS.PERF_LEVEL);
+  var ptsIdx  = headers.indexOf(COLUMNS.MONTHLY_POINTS.POINTS);
+  var qtyIdx  = headers.indexOf(COLUMNS.MONTHLY_POINTS.QUANTITY);
+
+  for (var i = 1; i < data.length; i++) {
+    var rowYm = data[i][ymIdx];
+    if (rowYm instanceof Date) rowYm = Utilities.formatDate(rowYm, 'Asia/Taipei', 'yyyy-MM');
+    else rowYm = String(rowYm).substring(0, 7);
+
+    var itemId = String(data[i][itemIdx]);
+    if (String(data[i][uidIdx]) === String(workerId) && 
+        rowYm === String(yearMonth) && 
+        itemId.indexOf('-C-') !== -1) {
+      
+      if (perfLevel) sheet.getRange(i + 1, perfIdx + 1).setValue(perfLevel);
+      if (points !== undefined) sheet.getRange(i + 1, ptsIdx + 1).setValue(points);
+      sheet.getRange(i + 1, qtyIdx + 1).setValue(1); // 核定後視同完成
+    }
   }
 }
 
@@ -1576,9 +1648,17 @@ function getMonthlySnapshot(callerEmail, workerId, yearMonth) {
   var records = sheetToObjects(ss.getSheetByName(SHEETS.MONTHLY_SNAPSHOT));
 
   records = records.filter(function(r) {
-    if (perm.callerRole === 'worker' &&
-        r[COLUMNS.MONTHLY_SNAPSHOT.USER_ID] !== perm.callerUserId) return false;
-    if (workerId && r[COLUMNS.MONTHLY_SNAPSHOT.USER_ID] !== workerId) return false;
+    var uid = r[COLUMNS.MONTHLY_SNAPSHOT.USER_ID];
+    if (perm.callerRole === 'worker' && uid !== perm.callerUserId) return false;
+
+    // deptMgr 只能查本部門
+    if (perm.callerRole === 'deptMgr') {
+      var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+      var worker  = workers.find(function(w) { return w[COLUMNS.USERS.ID] === uid; });
+      if (!worker || worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) return false;
+    }
+
+    if (workerId && uid !== workerId) return false;
     if (yearMonth && r[COLUMNS.MONTHLY_SNAPSHOT.YEAR_MONTH] !== yearMonth) return false;
     return true;
   });
@@ -1940,9 +2020,16 @@ function getMonthlyTotals(callerEmail, workerId, yearMonth) {
   }
 
   var ym = String(yearMonth || '').replace('/', '-').substring(0, 7);
-  if (!ym) return { success: false, error: '缺少 yearMonth 參數' };
-
   var ss = getAppSpreadsheet();
+
+  // deptMgr 只能查本部門
+  if (perm.callerRole === 'deptMgr') {
+    var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+    var worker  = workers.find(function(w) { return w[COLUMNS.USERS.ID] === targetId; });
+    if (!worker || worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) {
+      return { success: false, error: '只能查詢本部門人員的點數' };
+    }
+  }
   var totals = _computeMonthlyTotals(ss, targetId, ym);
 
   // 寫入快取分頁

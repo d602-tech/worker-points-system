@@ -95,20 +95,34 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
 
         {/* Tab Navigation */}
         <div className="flex items-stretch overflow-x-auto border-t border-border/50 px-2 scrollbar-hide">
-          {TABS.filter(t => t.id !== "changelog" || user?.role === "admin").map(({ id, path, icon: Icon, label }) => {
+          {TABS.filter(t => {
+            // 系統設定與更新歷程僅限 admin
+            if ((t.id === "config" || t.id === "changelog") && user?.role !== "admin") return false;
+            
+            // billing 角色主要看審核與統計報表
+            if (user?.role === "billing") {
+              return ["review", "summary", "leave", "fee"].includes(t.id);
+            }
+            
+            // deptMgr 角色不看服務費統計
+            if (user?.role === "deptMgr") {
+              return ["users", "attendance", "review", "summary", "leave"].includes(t.id);
+            }
+
+            return true;
+          }).map(({ id, path, icon: Icon, label }) => {
             const isActive = tab === id;
             return (
               <Link key={id} href={path}>
-                <div className={cn(
-                  "flex items-center gap-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap",
-                  "border-b-2 transition-all duration-200 cursor-pointer",
-                  isActive
-                    ? "border-blue-700 text-blue-700 bg-blue-50/50"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                <a className={cn(
+                  "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all relative border-b-2",
+                  isActive 
+                    ? "text-blue-700 border-blue-700 bg-blue-50/50" 
+                    : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/50"
                 )}>
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </div>
+                  <Icon className={cn("w-4 h-4", isActive ? "text-blue-700" : "text-muted-foreground")} />
+                  <span className="whitespace-nowrap">{label}</span>
+                </a>
               </Link>
             );
           })}

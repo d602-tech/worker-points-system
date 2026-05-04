@@ -9,7 +9,6 @@ import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
-const TARGET_USERS = ["USR001", "USR002", "USR003", "USR004", "USR005", "USR006", "USR007", "USR008", "USR009", "USR010", "USR011"];
 
 // 115/116 年度國定假日表
 const HOLIDAYS = [
@@ -80,7 +79,7 @@ export default function ReportFee() {
       });
       if (res.success && res.data) {
         const { workers, snapshots } = res.data;
-        const validWorkers = (workers || []).filter((w: any) => TARGET_USERS.includes(w["人員編號"]));
+        const validWorkers = (workers || []);
         
         const mapped = validWorkers.map((w: any) => {
           const wId = String(w["人員編號"]);
@@ -108,7 +107,7 @@ export default function ReportFee() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const stats = useMemo(() => {
-    const data = { general: 0, offshore: 0, safety: 0, environment: 0, leaveS: 0, penaltyP: 0, actualWorkHoursSum: 0, actualWorkerCount: 0 };
+    const data = { general: 0, offshore: 0, safety: 0, environment: 0, leaveS: 0, penaltyP: 0, actualWorkHoursSum: 0, actualWorkerCount: 0, totalConfiguredWorkers: reportData.length };
     reportData.forEach(w => {
       const regPoints = w.a + w.b + w.c + w.d;
       if (w.type === "一般協助員" || w.type === "general") data.general += regPoints;
@@ -130,7 +129,7 @@ export default function ReportFee() {
 
   const { dContract, dTotal } = getContractDaysInfo(selectedMonth);
   const workDaysInMonth = getWorkDaysInMonth(selectedMonth);
-  const totalExpectedHours = 11 * workDaysInMonth * 8; // Denominator
+  const totalExpectedHours = stats.totalConfiguredWorkers * workDaysInMonth * 8; // Denominator
   
   const attendanceRate = totalExpectedHours > 0 ? (stats.actualWorkHoursSum / totalExpectedHours) : 0;
   const proratedRatio = dContract / dTotal;
@@ -140,7 +139,7 @@ export default function ReportFee() {
   const fee_saf = Math.round(stats.safety * proratedRatio);
   const fee_env = Math.round(stats.environment * proratedRatio);
 
-  const fixedFee = Math.round((1632400 / 14) * (stats.actualWorkerCount / 11) * proratedRatio);
+  const fixedFee = Math.round((1632400 / 14) * (stats.actualWorkerCount / (stats.totalConfiguredWorkers || 1)) * proratedRatio);
   const adminFee = Math.round((805000 / 14) * attendanceRate * proratedRatio);
 
   const total_direct = fee_gen + fee_off + fee_saf + fee_env + fixedFee;
@@ -159,7 +158,7 @@ export default function ReportFee() {
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">服務費統計表</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">系統自動計算 USR001~USR011 之請款費用</p>
+          <p className="text-sm text-muted-foreground mt-0.5">系統自動計算所有在職人員之請款費用</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
@@ -236,7 +235,7 @@ export default function ReportFee() {
               <td className="border border-foreground p-2 text-center text-muted-foreground">式</td>
               <td className="border border-foreground text-right p-2">{fixedFee.toLocaleString()}</td>
               <td className="border border-foreground p-2 text-xs text-muted-foreground">
-                人數比例: {stats.actualWorkerCount}/11<br/>
+                人數比例: {stats.actualWorkerCount}/{stats.totalConfiguredWorkers}<br/>
                 天數比例: {dContract}/{dTotal}
               </td>
             </tr>

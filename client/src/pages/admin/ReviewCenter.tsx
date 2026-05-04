@@ -19,6 +19,7 @@ interface ReviewItem {
   yearMonth: string; category: string; taskName: string;
   points: number; status: ReviewStatus;
   files: number; note: string; rejectionReason?: string;
+  perfLevel?: string;
 }
 
 // 將 GAS 原始資料對應到 ReviewItem 介面
@@ -35,6 +36,7 @@ function mapRowToReviewItem(row: any): ReviewItem {
     files: String(row["佐證檔案編號"] || "").split(',').filter(Boolean).length,
     note: String(row["備註"] || ""),
     rejectionReason: String(row["退回原因"] || ""),
+    perfLevel: String(row["績效等級"] || ""),
   };
 }
 
@@ -80,6 +82,7 @@ export default function ReviewCenter() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
 
   // 1. 載入內容
   const loadItems = useCallback(async () => {
@@ -107,12 +110,15 @@ export default function ReviewCenter() {
     if (!user?.email) return;
     
     setIsLoading(true);
+    const assessment = perfAssess[id];
     const res = await gasPost("reviewMonthlyReport", {
       callerEmail: user.email,
       workerId: workerId,
       yearMonth: yearMonth,
       action2: action,
-      reason: reason || ""
+      reason: reason || "",
+      perfLevel: assessment?.level || "",
+      points: assessment?.points
     });
 
     if (res.success) {
@@ -201,6 +207,34 @@ export default function ReviewCenter() {
                     {item.status === "rejected" && item.rejectionReason && (
                       <div className="mt-2 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />{item.rejectionReason}
+                      </div>
+                    )}
+                    {/* C類績效核定介面 */}
+                    {item.category === "C" && item.status === "submitted" && (
+                      <div className="mt-3 p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center gap-3">
+                        <span className="text-xs font-bold text-blue-700">績效核定：</span>
+                        <div className="flex gap-1.5">
+                          {[
+                            { l: "優", p: 5000 },
+                            { l: "佳", p: 3000 },
+                            { l: "平", p: 2000 }
+                          ].map(v => {
+                            const active = perfAssess[item.id]?.level === v.l || (!perfAssess[item.id] && item.perfLevel === v.l);
+                            return (
+                              <button key={v.l}
+                                onClick={() => setPerfAssess(prev => ({ ...prev, [item.id]: { level: v.l, points: v.p } }))}
+                                className={cn("px-3 py-1 rounded-lg text-xs font-medium transition-all border",
+                                  active ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-muted-foreground border-border hover:border-blue-200")}>
+                                {v.l} ({v.p})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {item.category === "C" && item.status !== "submitted" && item.perfLevel && (
+                      <div className="mt-2 text-xs font-medium text-blue-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> 已核定：{item.perfLevel}
                       </div>
                     )}
                   </div>
