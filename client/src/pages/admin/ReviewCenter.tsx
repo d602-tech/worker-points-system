@@ -136,7 +136,9 @@ export default function ReviewCenter() {
       <LoadingOverlay isLoading={isLoading} />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">審核中心</h1>
+          <h1 className="text-xl font-semibold text-foreground">
+            {user?.role === "deptMgr" ? "績效評核" : "審核中心"}
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">待處理 {pendingCount} 項</p>
         </div>
         <div className="flex gap-1.5 flex-wrap justify-end">
@@ -201,7 +203,9 @@ export default function ReviewCenter() {
                     <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                       <span>{item.workerName}</span>
                       <span>{item.yearMonth}</span>
-                      <span className="font-semibold text-blue-700">{item.points.toLocaleString()} pt</span>
+                      {user?.role !== "deptMgr" && (
+                        <span className="font-semibold text-blue-700">{item.points.toLocaleString()} pt</span>
+                      )}
                       {item.files > 0 && <span>佐證 {item.files} 份</span>}
                     </div>
                     {item.status === "rejected" && item.rejectionReason && (

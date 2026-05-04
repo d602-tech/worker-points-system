@@ -1754,10 +1754,24 @@ function getReport(callerEmail, type, yearMonth) {
   if (!type || !yearMonth) return { success: false, error: '缺少 type 或 yearMonth' };
 
   var ss = getAppSpreadsheet();
+  var year = yearMonth.substring(0, 4);
 
-  // 優先從月結快照讀取
+  // 1. 讀取指定月份的月結快照
   var snapshots = sheetToObjects(ss.getSheetByName(SHEETS.MONTHLY_SNAPSHOT))
     .filter(function(s) { return s[COLUMNS.MONTHLY_SNAPSHOT.YEAR_MONTH] === yearMonth; });
+
+  // 2. 讀取該年度的所有快照 (用於計算年度已休)
+  var yearSnapshots = sheetToObjects(ss.getSheetByName(SHEETS.MONTHLY_SNAPSHOT))
+    .filter(function(s) { 
+      return String(s[COLUMNS.MONTHLY_SNAPSHOT.YEAR_MONTH]).startsWith(year); 
+    });
+
+  // 3. 讀取指定月份的所有差勤明細 (用於報表詳列)
+  var attendance = sheetToObjects(ss.getSheetByName(SHEETS.ATTENDANCE))
+    .filter(function(a) {
+      var d = String(a[COLUMNS.ATTENDANCE.DATE]);
+      return d.startsWith(yearMonth);
+    });
 
   var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS))
     .filter(function(w) { return String(w[COLUMNS.USERS.IS_ACTIVE]) === 'true'; });
@@ -1767,16 +1781,22 @@ function getReport(callerEmail, type, yearMonth) {
     workers = workers.filter(function(w) {
       return w[COLUMNS.USERS.DEPARTMENT] === perm.callerDept;
     });
+    var workerIds = workers.map(function(w) { return w[COLUMNS.USERS.ID]; });
+    snapshots = snapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
+    yearSnapshots = yearSnapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
+    attendance = attendance.filter(function(a) { return workerIds.indexOf(a[COLUMNS.ATTENDANCE.USER_ID]) !== -1; });
   }
 
   logActivity(callerEmail, 'export', '匯出報表 type=' + type + ' ' + yearMonth);
   return {
     success:   true,
     data: {
-      type:      parseInt(type),
-      yearMonth: yearMonth,
-      workers:   workers,
-      snapshots: snapshots,
+      type:          parseInt(type),
+      yearMonth:     yearMonth,
+      workers:       workers,
+      snapshots:     snapshots,
+      yearSnapshots: yearSnapshots,
+      attendance:    attendance
     },
   };
 }

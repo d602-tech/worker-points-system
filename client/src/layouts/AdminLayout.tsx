@@ -99,19 +99,20 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
             // 系統設定與更新歷程僅限 admin
             if ((t.id === "config" || t.id === "changelog") && user?.role !== "admin") return false;
             
-            // billing 角色主要看審核與統計報表
+            // billing 角色：工作量彙總、出勤暨特休、服務費統計
             if (user?.role === "billing") {
               return ["review", "summary", "leave", "fee"].includes(t.id);
             }
             
-            // deptMgr 角色不看服務費統計
+            // deptMgr 角色：人員管理、差勤管理、審核中心 (績效評核)、工作量彙總
             if (user?.role === "deptMgr") {
-              return ["users", "attendance", "review", "summary", "leave"].includes(t.id);
+              return ["users", "attendance", "review", "summary"].includes(t.id);
             }
 
             return true;
           }).map(({ id, path, icon: Icon, label }) => {
             const isActive = tab === id;
+            const displayLabel = (user?.role === "deptMgr" && id === "review") ? "績效評核" : label;
             return (
               <Link key={id} href={path}>
                 <a className={cn(
@@ -121,7 +122,7 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/50"
                 )}>
                   <Icon className={cn("w-4 h-4", isActive ? "text-blue-700" : "text-muted-foreground")} />
-                  <span className="whitespace-nowrap">{label}</span>
+                  <span className="whitespace-nowrap">{displayLabel}</span>
                 </a>
               </Link>
             );

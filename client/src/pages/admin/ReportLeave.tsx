@@ -1,172 +1,187 @@
-import { useState, useEffect, useCallback } from "react";
-import { Download, Printer } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Printer, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { exportLeaveStatReport } from "@/lib/exportExcel";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
-import { format, startOfYear, eachMonthOfInterval } from "date-fns";
+import { differenceInDays, parseISO } from "date-fns";
 
-interface WorkerLeave {
-  id: string;
-  name: string;
-  type: string;
-  leave: Record<string, number>;
+const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
+
+function calculateAnnualLeave(tenureYears: number) {
+  if (tenureYears < 0.5) return 0;
+  if (tenureYears < 1) return 3;
+  if (tenureYears < 2) return 7;
+  if (tenureYears < 3) return 10;
+  if (tenureYears < 5) return 14;
+  if (tenureYears < 10) return 15;
+  const extra = Math.floor(tenureYears - 10);
+  return Math.min(30, 15 + extra);
 }
 
-const CURRENT_YEAR_MONTHS = eachMonthOfInterval({
-  start: startOfYear(new Date()),
-  end: new Date()
-}).map(d => format(d, "yyyy-MM"));
+interface WorkerLeaveData {
+  id: string; name: string; dept: string; onboard: string; pastExp: number;
+  workDays: number; thisMonthLeaveHours: number; totalUsedHours: number;
+  leaveDetails: string;
+}
 
 export default function ReportLeave() {
   const { user } = useGasAuthContext();
-  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [reportData, setReportData] = useState<WorkerLeave[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState("2026-04");
+  const [reportData, setReportData] = useState<WorkerLeaveData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user?.email) return;
     setIsLoading(true);
     try {
-      const res = await gasGet<any>("getReport", {
-        callerEmail: user.email,
-        type: "4",
-        yearMonth: selectedMonth
-      });
+      const res = await gasGet<any>("getReport", { callerEmail: user.email, type: "5", yearMonth: selectedMonth });
       if (res.success && res.data) {
-        const { workers, snapshots } = res.data;
-        
-        // 僅篩選協助員 (worker)
-        const filteredWorkers = (workers || []).filter((w: any) => String(w["角色"]) === "worker");
-
-        const mapped = filteredWorkers.map((w: any) => {
-          const wId = String(w["人員編號"] || "");
+        const { workers, snapshots, yearSnapshots, attendance } = res.data;
+        const mapped = (workers || []).map((w: any) => {
+          const wId = String(w["人員編號"]);
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
+          const ySnaps = (yearSnapshots || []).filter((s: any) => s["人員編號"] === wId);
+          const atts = (attendance || []).filter((a: any) => a["人員編號"] === wId);
+
+          const totalUsedHours = ySnaps.reduce((sum: number, s: any) => sum + Number(s["特休時數"] || 0), 0);
           
-          // 解析出勤狀態（目前 snapshot 只有 A_TOTAL 等，出勤詳細可能在後端需要對接）
-          // 這裡假設後端會回傳出勤統計，或者我們從快照讀取
-          // 根據 Code.gs 1397 行，snapshot 有 WORK_DAYS 和 LEAVE_HOURS
-          const workDays = Number(snap?.["出勤天數"] || 0);
-          const leaveHours = Number(snap?.["特休時數"] || 0);
+          const details = atts
+            .filter((a: any) => a["上午狀態"] === "特休" || a["下午狀態"] === "特休" || Number(a["特休時數"] || 0) > 0)
+            .map((a: any) => {
+              const d = String(a["日期"]).split("-").slice(1).join("/");
+              const h = Number(a["特休時數"] || 0);
+              return `${d}(特休${h}h)`;
+            })
+            .join(", ");
 
           return {
-            id: wId,
-            name: String(w["姓名"] || ""),
-            type: String(w["職務類型"] || ""),
-            leave: { 
-              "上班": workDays, 
-              "特休": leaveHours / 8, // 假設 8 小時為一天
-              "病假": 0, "事假": 0, "婚假": 0, "喪假": 0, "公假": 0, "代理": 0, "曠職": 0 
-            }
+            id: wId, name: String(w["姓名"] || ""), dept: String(w["用人部門"] || ""), 
+            onboard: String(w["到職日"] || ""), pastExp: Number(w["過往年資天數"] || 0),
+            workDays: Number(snap?.["出勤天數"] || 0), 
+            thisMonthLeaveHours: Number(snap?.["特休時數"] || 0),
+            totalUsedHours,
+            leaveDetails: details
           };
         });
         setReportData(mapped);
       }
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   }, [user?.email, selectedMonth]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const LEAVE_TYPES = ["上班", "特休", "病假", "事假", "婚假", "喪假", "公假", "代理", "曠職"];
-
-  const handleExport = () => {
-    exportLeaveStatReport(
-      reportData.map(w => ({
-        workerId: w.id, workerName: w.name, department: w.type, onboardDate: "-",
-        expDays: 0, annualLeaveEntitled: 0, annualLeaveUsed: w.leave['特休'],
-        annualLeaveRemaining: 0, workDays: w.leave['上班'],
-        totalLeaveDays: Object.entries(w.leave).filter(([k]) => k !== '上班').reduce((s, [,v]) => s + v, 0),
-      })),
-      selectedMonth
-    );
-  };
+  const tableData = useMemo(() => {
+    const today = new Date();
+    return reportData.map(w => {
+      let tenureDays = w.pastExp;
+      if (w.onboard) {
+        try { tenureDays += differenceInDays(today, parseISO(w.onboard)); } catch(e) {}
+      }
+      const tenureYears = tenureDays / 365;
+      const entitledDays = calculateAnnualLeave(tenureYears);
+      const entitledHours = entitledDays * 8;
+      return { ...w, tenureYears, entitledHours, remainingHours: entitledHours - w.totalUsedHours };
+    });
+  }, [reportData]);
 
   return (
-    <div className="space-y-6 print:space-y-4 relative min-h-[400px]">
+    <div className="space-y-6 print:space-y-0 relative min-h-[400px]">
       <LoadingOverlay isLoading={isLoading} />
-      <div className="flex items-center justify-between print:hidden">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">出勤暨特休統計表</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">協助員出勤與請假統計</p>
+      
+      <div className="flex items-center justify-between no-print">
+        <div className="flex gap-2">
+          {MONTHS_LIST.map(m => (
+            <button key={m} onClick={() => setSelectedMonth(m)}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+                selectedMonth === m ? "bg-blue-700 text-white border-blue-700 shadow-sm" : "bg-white text-muted-foreground border-border hover:bg-muted")}>
+              {m}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 bg-slate-800 text-white hover:bg-slate-700 hover:text-white">
             <Printer className="w-4 h-4" />列印
           </Button>
-          <Button size="sm" className="bg-blue-700 hover:bg-blue-800 gap-1.5" onClick={handleExport}>
-            <Download className="w-4 h-4" />匯出 xlsx
-          </Button>
         </div>
       </div>
 
-      <div className="flex gap-2 print:hidden">
-        {CURRENT_YEAR_MONTHS.map(m => (
-          <button key={m} onClick={() => setSelectedMonth(m)}
-            className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
-              selectedMonth === m ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
-            {m}
-          </button>
-        ))}
-      </div>
+      <div className="bg-white rounded-xl shadow-elegant border border-border/50 p-8 print:p-0 print:shadow-none print:border-none max-w-[297mm] mx-auto min-h-[210mm]">
+        <div className="text-center mb-6 pt-4">
+          <h1 className="text-2xl font-bold border-b-2 border-black inline-block px-4 pb-1 text-center w-full">亮軒企業有限公司</h1><br />
+          <h1 className="text-xl font-bold border-b-2 border-black inline-block px-4 pb-1 mt-2">「115年度綜合施工處職安環保協助員量化工作」<br />每月出勤暨特休統計表</h1>
+        </div>
 
-      <div className="hidden print:block text-center mb-4">
-        <h2 className="text-lg font-bold">115年度協助員點數管理系統</h2>
-        <h3 className="text-base">出勤暨特休統計表 — {selectedMonth}</h3>
-      </div>
+        <div className="flex justify-end items-center mb-2 px-1 text-base font-bold">
+          統計年月：<span className="border-b border-black px-4">{selectedMonth.replace("-", "年")}月</span>
+        </div>
 
-      <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden print:shadow-none print:border">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm report-table">
-            <thead>
-              <tr className="border-b border-border/60 bg-muted/30">
-                {["工號", "姓名", "協助員類型", ...LEAVE_TYPES, "應出勤天數"].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {reportData.map((w, idx) => {
-                const workDays = w.leave["上班"];
-                const totalDays = Object.values(w.leave).reduce((a, b) => a + b, 0);
-                return (
-                  <tr key={w.id} className={cn("border-b border-border/30 hover:bg-muted/20 transition-colors", idx % 2 === 0 ? "" : "bg-muted/10")}>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{w.id}</td>
-                    <td className="px-4 py-3 font-medium text-foreground">{w.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{w.type}</td>
-                    {LEAVE_TYPES.map(lt => (
-                      <td key={lt} className={cn("px-4 py-3 text-center",
-                        lt === "上班" ? "font-semibold text-emerald-700" :
-                        lt === "曠職" && w.leave["曠職"] > 0 ? "text-red-600 font-semibold" :
-                        w.leave[lt as keyof typeof w.leave] > 0 ? "text-amber-700" : "text-muted-foreground/40")}>
-                        {w.leave[lt as keyof typeof w.leave] || "-"}
-                      </td>
-                    ))}
-                    <td className="px-4 py-3 text-center font-semibold text-foreground">{totalDays}</td>
-                  </tr>
-                );
-              })}
-              <tr className="border-t-2 border-border bg-muted/20 font-semibold">
-                <td colSpan={3} className="px-4 py-3 text-sm font-semibold text-foreground">合計</td>
-                {LEAVE_TYPES.map(lt => (
-                  <td key={lt} className="px-4 py-3 text-center text-sm font-bold text-foreground">
-                    {reportData.reduce((sum, w) => sum + (w.leave[lt as keyof typeof w.leave] || 0), 0)}
-                  </td>
-                ))}
-                <td className="px-4 py-3 text-center text-sm font-bold text-foreground">
-                  {reportData.reduce((sum, w) => sum + Object.values(w.leave).reduce((a, b) => a + b, 0), 0)}
+        <table className="w-full border-collapse border border-black text-[11px]">
+          <thead>
+            <tr className="bg-gray-100 h-10 font-bold">
+              <th className="border border-black w-8">項次</th>
+              <th className="border border-black w-20">姓名</th>
+              <th className="border border-black w-20">到職日期</th>
+              <th className="border border-black w-20">年資<br />(含併計)</th>
+              <th className="border border-black w-20">應有特休<br />(小時)</th>
+              <th className="border border-black w-20">年度已休<br />(小時)</th>
+              <th className="border border-black w-20">剩餘時數<br />(小時)</th>
+              <th className="border border-black w-20">本月出勤<br />(天數)</th>
+              <th className="border border-black w-20">本月請休<br />(小時)</th>
+              <th className="border border-black">出勤/請假日期詳列</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tableData.map((row, idx) => (
+              <tr key={row.id} className="h-10">
+                <td className="border border-black text-center">{idx + 1}</td>
+                <td className="border border-black text-center font-bold">{row.name}<br /><span className="text-[9px] text-gray-400 font-normal">{row.id}</span></td>
+                <td className="border border-black text-center">{row.onboard || "-"}</td>
+                <td className="border border-black text-center">{row.tenureYears.toFixed(1)}年</td>
+                <td className="border border-black text-center font-mono">{row.entitledHours}</td>
+                <td className="border border-black text-center font-mono text-amber-700">{row.totalUsedHours}</td>
+                <td className="border border-black text-center font-mono font-bold text-emerald-700">{row.remainingHours}</td>
+                <td className="border border-black text-center font-bold">{row.workDays}</td>
+                <td className="border border-black text-center font-mono text-blue-700 font-bold">{row.thisMonthLeaveHours}</td>
+                <td className="border border-black px-2 py-1 leading-tight text-[9px] text-gray-600">
+                  {row.leaveDetails || <span className="text-gray-300 italic">無請假紀錄</span>}
                 </td>
               </tr>
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="mt-8 text-[10px] border border-black p-4 bg-gray-50">
+          <p className="font-bold underline mb-1">備註說明：</p>
+          <ul className="list-disc list-inside space-y-0.5">
+            <li>特休計算依《勞基法》規定核算，年資包含過往併計天數。</li>
+            <li>「本月出勤」定義為實際到工天數 (不含請假天數)。</li>
+            <li>「本月請休」為本月核定發放點數之特休/補休時數。</li>
+            <li className="text-blue-700 font-bold">廠商應確保所屬人員之出勤紀錄與本表一致，作為費用核付之佐證。</li>
+          </ul>
         </div>
-        <div className="px-4 py-3 border-t border-border/30 text-xs text-muted-foreground print:hidden">
-          資料來源：Google Sheets「差勤紀錄」分頁
+
+        <div className="mt-16 grid grid-cols-3 gap-8 text-center print:mt-24">
+          <div><div className="border-b border-black pb-8 mb-2 font-bold">製表人</div></div>
+          <div><div className="border-b border-black pb-8 mb-2 font-bold">複核</div></div>
+          <div><div className="border-b border-black pb-8 mb-2 font-bold">核准</div></div>
         </div>
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page { size: A4 landscape; margin: 10mm; }
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          .shadow-elegant { box-shadow: none !important; }
+          .border-border\\/50 { border: none !important; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-gray-50 { background-color: #f9fafb !important; }
+          .bg-gray-100 { background-color: #f3f4f6 !important; }
+        }
+      `}} />
     </div>
   );
 }
