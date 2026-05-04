@@ -302,6 +302,7 @@ export default function AdminAttendance() {
           ))}
           {workers.length === 0 && <span className="text-xs text-muted-foreground py-2">載入人員中...</span>}
         </div>
+        
         <div className="flex gap-3 ml-auto">
           {[
             { label: "全天出勤", value: fullDays, color: "text-emerald-700 bg-emerald-50" },
@@ -315,6 +316,39 @@ export default function AdminAttendance() {
           ))}
         </div>
       </div>
+
+      {user?.role === "deptMgr" && (
+        <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-border/30 bg-gray-50/50">
+            <h2 className="text-sm font-bold text-foreground">部門差勤彙總</h2>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/30 text-muted-foreground">
+                <th className="px-4 py-3 text-left font-medium">姓名</th>
+                <th className="px-4 py-3 text-center font-medium">當月特休 (時)</th>
+                <th className="px-4 py-3 text-center font-medium">年度累計 (天)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workers.map(w => {
+                const wRecords = Object.values(records).filter(r => r.userId === w.userId);
+                const mHours = wRecords.reduce((sum, r) => {
+                  const h = (s: string) => getStatusType(s) === "特" ? getStatusHours(s) : 0;
+                  return sum + h(r.amStatus) + h(r.pmStatus);
+                }, 0);
+                return (
+                  <tr key={w.userId} className="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium">{w.name}</td>
+                    <td className="px-4 py-3 text-center font-mono text-blue-700">{mHours}h</td>
+                    <td className="px-4 py-3 text-center font-mono font-bold text-indigo-700">{(w as any).ytdLeaveDays || "0.0"} 天</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Calendar */}
       <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">

@@ -616,6 +616,22 @@ function getWorkers(callerEmail) {
       return String(w[COLUMNS.USERS.IS_ACTIVE]) === 'true';
     });
   }
+
+  // 加上年度特休累計 (針對 deptMgr 需求)
+  if (perm.callerRole === 'deptMgr') {
+    var attendance = sheetToObjects(ss.getSheetByName(SHEETS.ATTENDANCE));
+    var year = new Date().getFullYear();
+    workers = workers.map(function(w) {
+      var ytdHours = attendance
+        .filter(function(a) { 
+          return a[COLUMNS.ATTENDANCE.USER_ID] === w[COLUMNS.USERS.ID] && 
+                 String(a[COLUMNS.ATTENDANCE.DATE]).startsWith(String(year)); 
+        })
+        .reduce(function(sum, a) { return sum + (parseFloat(a[COLUMNS.ATTENDANCE.LEAVE_HOURS]) || 0); }, 0);
+      w.ytdLeaveDays = (ytdHours / 8).toFixed(1);
+      return w;
+    });
+  }
   logActivity(callerEmail, 'query', '查詢人員列表');
   return { success: true, data: workers };
 }
@@ -1448,18 +1464,14 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
       // 但 reviewItem 是被 doPost 呼叫的，參數已經展開
     } catch(_) {}
 
-    var newStatus = actionToStatus(action2);
-    var before = getCurrentStatus(ss, workerId, yearMonth);
-
-    // 處理 C 類績效核定 (若有傳入評等與點數)
-    // 注意：這裡假設 reviewItem 可能透過 e.parameter (GET) 或 body (POST) 呼叫
-    // 在本系統中 reviewItem 主要透過 doPost 呼叫，但我們需要確保參數能傳入
-    // 修改 reviewItem 的宣告以支援更多參數：reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel, points)
+    var newStatus = (action2 === 'admin_save') ? before : actionToStatus(action2);
     
-    updatePointsStatus(ss, workerId, yearMonth, newStatus);
+    if (action2 !== 'admin_save') {
+      updatePointsStatus(ss, workerId, yearMonth, newStatus);
+    }
 
-    // 處理 C 類績效核定 (由 deptMgr 在初審時設定)
-    if (perfLevel && (action2 === '初審通過' || action2 === 'admin_save')) {
+    // 處理 C 類績效核定 (由 deptMgr 直接填寫，不論狀態)
+    if (perfLevel) {
       updatePerfAssessment(ss, workerId, yearMonth, perfLevel, parseFloat(points) || 0);
     }
 
@@ -1474,7 +1486,7 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
     logActivity(callerEmail, 'review',
       action2 + '：' + workerId + ' ' + yearMonth +
       (reason ? ' (' + reason + ')' : ''));
-    return { success: true, message: '審核動作完成：' + action2 };
+    return { success: true, message: '資料已儲存：' + action2 };
   } finally {
     lock.releaseLock();
   }
@@ -1782,17 +1794,62 @@ function getReport(callerEmail, type, yearMonth) {
     });
 
   var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS))
-    .filter(function(w) { return String(w[COLUMNS.USERS.IS_ACTIVE]) === 'true'; });
+    .filter(function(w) { 
+      var role = String(w[COLUMNS.USERS.ROLE] || '');
+      var isActive = String(w[COLUMNS.USERS.IS_ACTIVE]) === 'true';
+      if (perm.callerRole === 'billing' || perm.callerRole === 'deptMgr') {
+        return isActive && (role === 'worker' || role === 'billing');
+      }
+      return isActive; 
+    });
 
   // deptMgr 只能看本部門
   if (perm.callerRole === 'deptMgr') {
     workers = workers.filter(function(w) {
       return w[COLUMNS.USERS.DEPARTMENT] === perm.callerDept;
     });
-    var workerIds = workers.map(function(w) { return w[COLUMNS.USERS.ID]; });
-    snapshots = snapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
-    yearSnapshots = yearSnapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
-    attendance = attendance.filter(function(a) { return workerIds.indexOf(a[COLUMNS.ATTENDANCE.USER_ID]) !== -1; });
+  }
+  
+  var workerIds = workers.map(function(w) { return w[COLUMNS.USERS.ID]; });
+  snapshots = snapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
+  yearSnapshots = yearSnapshots.filter(function(s) { return workerIds.indexOf(s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID]) !== -1; });
+  attendance = attendance.filter(function(a) { return workerIds.indexOf(a[COLUMNS.ATTENDANCE.USER_ID]) !== -1; });
+
+  // 如果某些人員沒有快照，嘗試動態彙整 (針對 billing 查看需求)
+  if (snapshots.length < workers.length) {
+    var dailyPoints = sheetToObjects(ss.getSheetByName(SHEETS.DAILY_POINTS))
+      .filter(function(p) { return String(p[COLUMNS.DAILY_POINTS.DATE]).startsWith(yearMonth); });
+    var monthlyPoints = sheetToObjects(ss.getSheetByName(SHEETS.MONTHLY_POINTS))
+      .filter(function(p) { return String(p[COLUMNS.MONTHLY_POINTS.YEAR_MONTH]) === yearMonth; });
+      
+    workers.forEach(function(w) {
+      var wId = w[COLUMNS.USERS.ID];
+      if (!snapshots.find(function(s) { return s[COLUMNS.MONTHLY_SNAPSHOT.USER_ID] === wId; })) {
+        var aTotal = dailyPoints.filter(function(p) { return p[COLUMNS.DAILY_POINTS.USER_ID] === wId && String(p[COLUMNS.DAILY_POINTS.ITEM_ID]).indexOf('-A') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.DAILY_POINTS.POINTS]) || 0); }, 0);
+        var bTotal = dailyPoints.filter(function(p) { return p[COLUMNS.DAILY_POINTS.USER_ID] === wId && String(p[COLUMNS.DAILY_POINTS.ITEM_ID]).indexOf('-B') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.DAILY_POINTS.POINTS]) || 0); }, 0);
+        var cAmount = monthlyPoints.filter(function(p) { return p[COLUMNS.MONTHLY_POINTS.USER_ID] === wId && String(p[COLUMNS.MONTHLY_POINTS.ITEM_ID]).indexOf('-C') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.MONTHLY_POINTS.POINTS]) || 0); }, 0);
+        var dTotal = dailyPoints.filter(function(p) { return p[COLUMNS.DAILY_POINTS.USER_ID] === wId && String(p[COLUMNS.DAILY_POINTS.ITEM_ID]).indexOf('-D') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.DAILY_POINTS.POINTS]) || 0); }, 0);
+        var sAmount = monthlyPoints.filter(function(p) { return p[COLUMNS.MONTHLY_POINTS.USER_ID] === wId && String(p[COLUMNS.MONTHLY_POINTS.ITEM_ID]).indexOf('-S') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.MONTHLY_POINTS.POINTS]) || 0); }, 0);
+        var pDeduction = dailyPoints.filter(function(p) { return p[COLUMNS.DAILY_POINTS.USER_ID] === wId && String(p[COLUMNS.DAILY_POINTS.ITEM_ID]).indexOf('-P') !== -1; })
+          .reduce(function(sum, p) { return sum + (parseFloat(p[COLUMNS.DAILY_POINTS.POINTS]) || 0); }, 0);
+        
+        var wAtt = attendance.filter(function(a) { return a[COLUMNS.ATTENDANCE.USER_ID] === wId; });
+        var workDays = wAtt.length; // 簡化計算
+        var leaveHours = wAtt.reduce(function(sum, a) { return sum + (parseFloat(a[COLUMNS.ATTENDANCE.LEAVE_HOURS]) || 0); }, 0);
+
+        snapshots.push({
+          '人員編號': wId, '年月': yearMonth,
+          'A類小計': aTotal, 'B類小計': bTotal, 'C類金額': cAmount, 'D類小計': dTotal, 'S類金額': sAmount, 'P類扣款': pDeduction,
+          '本月總計': aTotal + bTotal + cAmount + dTotal + sAmount - pDeduction,
+          '出勤天數': workDays, '特休時數': leaveHours
+        });
+      }
+    });
   }
 
   logActivity(callerEmail, 'export', '匯出報表 type=' + type + ' ' + yearMonth);

@@ -186,43 +186,65 @@ export default function ReviewCenter() {
       </div>
 
       {user?.role === "deptMgr" ? (
-        /* 部門經理批量視圖 */
-        <div className="grid gap-4">
-          {deptMgrView?.map(w => (
-            <div key={w.workerId} className="bg-white rounded-2xl shadow-elegant border border-border/50 p-5 flex items-center justify-between group hover:border-blue-200 transition-all">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-bold text-lg border border-blue-100">{w.name[0]}</div>
-                <div>
-                  <div className="text-base font-bold text-foreground">{w.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{w.workerId}</div>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-6">
-                <div className="flex gap-2">
-                  {[
-                    { l: "優", p: 5000, c: "hover:bg-emerald-50 hover:text-emerald-700" },
-                    { l: "佳", p: 3000, c: "hover:bg-blue-50 hover:text-blue-700" },
-                    { l: "平", p: 2000, c: "hover:bg-gray-50 hover:text-gray-700" }
-                  ].map(v => {
-                    const active = perfAssess[w.items[0]?.id]?.level === v.l || (!perfAssess[w.items[0]?.id] && w.items[0]?.perfLevel === v.l);
-                    return (
-                      <button key={v.l}
-                        onClick={() => w.items[0] && setPerfAssess(prev => ({ ...prev, [w.items[0].id]: { level: v.l, points: v.p } }))}
-                        className={cn("px-4 py-2 rounded-xl text-sm font-bold transition-all border-2",
-                          active ? "bg-blue-600 text-white border-blue-600 shadow-md" : `bg-white text-muted-foreground border-dashed border-gray-200 ${v.c}`)}>
-                        {v.l}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="text-right w-24">
-                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">評核點數</div>
-                   <div className="text-lg font-mono font-bold text-blue-700">{perfAssess[w.items[0]?.id]?.points || (w.items[0]?.perfLevel === '優' ? 5000 : w.items[0]?.perfLevel === '佳' ? 3000 : w.items[0]?.perfLevel === '平' ? 2000 : 0)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
+        /* 部門經理直接填報視圖 */
+        <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-border/30 text-muted-foreground">
+                <th className="px-6 py-4 text-left font-bold">人員姓名 / 工號</th>
+                <th className="px-6 py-4 text-center font-bold">當月績效等第</th>
+                <th className="px-6 py-4 text-right font-bold">填報點數</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {deptMgrView?.map(w => {
+                const itemId = w.items[0]?.id;
+                const currentLevel = perfAssess[itemId]?.level || w.items[0]?.perfLevel || "";
+                const currentPoints = perfAssess[itemId]?.points || (currentLevel === '優' ? 5000 : currentLevel === '佳' ? 3000 : currentLevel === '平' ? 2000 : 0);
+                
+                return (
+                  <tr key={w.workerId} className="hover:bg-blue-50/30 transition-colors group">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 font-bold border border-indigo-100 group-hover:scale-110 transition-transform">
+                          {w.name[0]}
+                        </div>
+                        <div>
+                          <div className="font-bold text-foreground">{w.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{w.workerId}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex justify-center gap-1.5">
+                        {[
+                          { l: "優", p: 5000, c: "bg-emerald-600 border-emerald-600" },
+                          { l: "佳", p: 3000, c: "bg-blue-600 border-blue-600" },
+                          { l: "平", p: 2000, c: "bg-slate-600 border-slate-600" }
+                        ].map(v => {
+                          const active = currentLevel === v.l;
+                          return (
+                            <button key={v.l}
+                              onClick={() => itemId && setPerfAssess(prev => ({ ...prev, [itemId]: { level: v.l, points: v.p } }))}
+                              className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                                active ? `${v.c} text-white shadow-md` : "bg-white text-muted-foreground border-border hover:border-blue-300 hover:text-blue-600")}>
+                              {v.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-right font-mono font-bold text-blue-700 text-lg">
+                      {currentPoints.toLocaleString()} pt
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {deptMgrView?.length === 0 && (
+            <div className="p-12 text-center text-muted-foreground">查無可評核之人員資料</div>
+          )}
         </div>
       ) : (
         /* 標準審核視圖 (billing / admin) */
