@@ -1428,7 +1428,7 @@ function submitMonthlyReport(callerEmail, workerId, yearMonth) {
  * 審核動作
  * action2: '初審通過' | '退回修改' | '廠商確認' | '廠商退回' | '已請款'
  */
-function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel, points) {
+function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel, points, itemId) {
   if (!action2) return { success: false, error: '缺少審核動作' };
 
   // 驗證角色與動作合法性
@@ -1437,6 +1437,8 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
     allowedRoles = ['admin','deptMgr'];
   } else if (action2 === '廠商確認' || action2 === '廠商退回' || action2 === '已請款') {
     allowedRoles = ['admin','billing'];
+  } else if (action2 === 'admin_save') {
+    allowedRoles = ['admin','deptMgr','billing'];
   } else {
     return { success: false, error: '未知的審核動作：' + action2 };
   }
@@ -1464,6 +1466,7 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
       // 但 reviewItem 是被 doPost 呼叫的，參數已經展開
     } catch(_) {}
 
+    var before = getCurrentStatus(ss, workerId, yearMonth);
     var newStatus = (action2 === 'admin_save') ? before : actionToStatus(action2);
     
     if (action2 !== 'admin_save') {
@@ -1471,8 +1474,8 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
     }
 
     // 處理 C 類績效核定 (由 deptMgr 直接填寫，不論狀態)
-    if (perfLevel) {
-      updatePerfAssessment(ss, workerId, yearMonth, perfLevel, parseFloat(points) || 0);
+    if (perfLevel || points !== undefined) {
+      updatePerfAssessment(ss, workerId, yearMonth, perfLevel, parseFloat(points) || 0, itemId);
     }
 
     writeReviewLog(ss, workerId, yearMonth, perm.callerUserId, action2, reason,
@@ -1492,7 +1495,7 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
   }
 }
 
-function updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points) {
+function updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points, itemId) {
   var sheet = ss.getSheetByName(SHEETS.MONTHLY_POINTS);
   var data  = sheet.getDataRange().getValues();
   var headers = data[0];
@@ -1502,21 +1505,44 @@ function updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points) {
   var perfIdx = headers.indexOf(COLUMNS.MONTHLY_POINTS.PERF_LEVEL);
   var ptsIdx  = headers.indexOf(COLUMNS.MONTHLY_POINTS.POINTS);
   var qtyIdx  = headers.indexOf(COLUMNS.MONTHLY_POINTS.QUANTITY);
+  var statIdx = headers.indexOf(COLUMNS.MONTHLY_POINTS.STATUS);
+  var upIdx   = headers.indexOf(COLUMNS.MONTHLY_POINTS.UPDATED_AT);
+  var now     = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
 
+  var found = false;
   for (var i = 1; i < data.length; i++) {
     var rowYm = data[i][ymIdx];
     if (rowYm instanceof Date) rowYm = Utilities.formatDate(rowYm, 'Asia/Taipei', 'yyyy-MM');
     else rowYm = String(rowYm).substring(0, 7);
 
-    var itemId = String(data[i][itemIdx]);
+    var rowItemId = String(data[i][itemIdx]);
     if (String(data[i][uidIdx]) === String(workerId) && 
         rowYm === String(yearMonth) && 
-        itemId.indexOf('-C-') !== -1) {
+        (itemId ? (rowItemId === itemId) : (rowItemId.indexOf('-C-') !== -1))) {
       
       if (perfLevel) sheet.getRange(i + 1, perfIdx + 1).setValue(perfLevel);
       if (points !== undefined) sheet.getRange(i + 1, ptsIdx + 1).setValue(points);
-      sheet.getRange(i + 1, qtyIdx + 1).setValue(1); // 核定後視同完成
+      sheet.getRange(i + 1, qtyIdx + 1).setValue(1);
+      sheet.getRange(i + 1, upIdx + 1).setValue(now);
+      found = true;
+      if (itemId) break; // 若指定 ID，找到就停
     }
+  }
+
+  // 若沒找到且有指定 itemId，則新增一列
+  if (!found && itemId) {
+    var newRow = [];
+    newRow[headers.indexOf(COLUMNS.MONTHLY_POINTS.RECORD_ID)] = generateId('MP');
+    newRow[uidIdx] = workerId;
+    newRow[ymIdx]  = yearMonth;
+    newRow[itemIdx] = itemId;
+    newRow[qtyIdx]  = 1;
+    newRow[ptsIdx]  = points || 0;
+    newRow[perfIdx] = perfLevel || '';
+    newRow[statIdx] = 'submitted';
+    newRow[headers.indexOf(COLUMNS.MONTHLY_POINTS.UPLOADED_AT)] = now;
+    newRow[upIdx] = now;
+    sheet.appendRow(newRow);
   }
 }
 

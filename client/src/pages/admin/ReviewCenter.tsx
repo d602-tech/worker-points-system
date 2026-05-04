@@ -118,28 +118,51 @@ export default function ReviewCenter() {
   };
 
   const handleBulkSubmit = async () => {
-    // 這裡實作批量提交邏輯 (依次呼叫 applyAction 或後端新增批量 API)
-    // 為了簡單起見，目前透過前端循環呼叫
     const targetIds = Object.keys(perfAssess);
     if (targetIds.length === 0) return;
     setIsLoading(true);
-    for (const id of targetIds) {
-      const item = items.find(i => i.id === id);
-      if (item) {
-        await gasPost("reviewMonthlyReport", {
-          callerEmail: user?.email,
-          workerId: item.workerId,
-          yearMonth: item.yearMonth,
-          action2: "admin_save", // 僅儲存，不改變狀態
-          perfLevel: perfAssess[id].level,
-          points: perfAssess[id].points
-        });
+    try {
+      for (const id of targetIds) {
+        const assessment = perfAssess[id];
+        // 找出對應的人員與項目資訊
+        // 如果 ID 是虛擬產生的 (TEMP_C1 / PERF_C2)，我們需要從 w.workerId 反推
+        let workerId = "";
+        let itemId = "";
+        
+        if (id.startsWith("TEMP_C1_")) {
+          workerId = id.replace("TEMP_C1_", "");
+          itemId = "GEN-C1-01"; // 預設臨時交辦 ID
+        } else if (id.startsWith("PERF_C2_")) {
+          workerId = id.replace("PERF_C2_", "");
+          itemId = "GEN-C1-02"; // 預設績效評核 ID
+        } else {
+          const item = items.find(i => i.id === id);
+          if (item) {
+            workerId = item.workerId;
+            itemId = item.id;
+          }
+        }
+
+        if (workerId) {
+          await gasPost("reviewMonthlyReport", {
+            callerEmail: user?.email,
+            workerId: workerId,
+            yearMonth: currentYearMonth,
+            action2: "admin_save",
+            itemId: itemId, // 傳遞特定的項目 ID
+            perfLevel: assessment.level,
+            points: assessment.points
+          });
+        }
       }
+      toast.success("績效評核與臨時交辦已儲存");
+      loadItems();
+      setConfirmDialog(false);
+    } catch (err) {
+      toast.error("儲存過程發生錯誤");
+    } finally {
+      setIsLoading(false);
     }
-    toast.success("績效評核儲存成功");
-    loadItems();
-    setConfirmDialog(false);
-    setIsLoading(false);
   };
 
   // 分組邏輯：如果是經理，直接按人列出 C 類項目
@@ -192,21 +215,28 @@ export default function ReviewCenter() {
             <thead>
               <tr className="bg-slate-50 border-b border-border/30 text-muted-foreground">
                 <th className="px-6 py-4 text-left font-bold">人員姓名 / 工號</th>
-                <th className="px-6 py-4 text-center font-bold">當月績效等第</th>
-                <th className="px-6 py-4 text-right font-bold">填報點數</th>
+                <th className="px-6 py-4 text-center font-bold">臨時交辦點數</th>
+                <th className="px-6 py-4 text-center font-bold">績效評核點數</th>
+                <th className="px-6 py-4 text-right font-bold">本月 C 類總計</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
               {deptMgrView?.map(w => {
-                const itemId = w.items[0]?.id;
-                const currentLevel = perfAssess[itemId]?.level || w.items[0]?.perfLevel || "";
-                const currentPoints = perfAssess[itemId]?.points || (currentLevel === '優' ? 5000 : currentLevel === '佳' ? 3000 : currentLevel === '平' ? 2000 : 0);
+                // 假設 C1-01 是臨時交辦，C1-02 是績效評核
+                const itemC1 = w.items.find(i => i.id.includes('C1-01')) || w.items[0]; 
+                const itemC2 = w.items.find(i => i.id.includes('C1-02')) || w.items[1];
+                
+                const c1Id = itemC1?.id || `TEMP_C1_${w.workerId}`;
+                const c2Id = itemC2?.id || `PERF_C2_${w.workerId}`;
+
+                const currentC1 = perfAssess[c1Id]?.points ?? itemC1?.points ?? 0;
+                const currentC2 = perfAssess[c2Id]?.points ?? itemC2?.points ?? 0;
                 
                 return (
                   <tr key={w.workerId} className="hover:bg-blue-50/30 transition-colors group">
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 font-bold border border-indigo-100 group-hover:scale-110 transition-transform">
+                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 font-bold border border-indigo-100">
                           {w.name[0]}
                         </div>
                         <div>
@@ -215,27 +245,37 @@ export default function ReviewCenter() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="flex justify-center gap-1.5">
-                        {[
-                          { l: "優", p: 5000, c: "bg-emerald-600 border-emerald-600" },
-                          { l: "佳", p: 3000, c: "bg-blue-600 border-blue-600" },
-                          { l: "平", p: 2000, c: "bg-slate-600 border-slate-600" }
-                        ].map(v => {
-                          const active = currentLevel === v.l;
-                          return (
-                            <button key={v.l}
-                              onClick={() => itemId && setPerfAssess(prev => ({ ...prev, [itemId]: { level: v.l, points: v.p } }))}
-                              className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all border",
-                                active ? `${v.c} text-white shadow-md` : "bg-white text-muted-foreground border-border hover:border-blue-300 hover:text-blue-600")}>
-                              {v.l}
+                    <td className="px-6 py-5 text-center">
+                      <input 
+                        type="number"
+                        value={currentC1}
+                        onChange={(e) => setPerfAssess(prev => ({ ...prev, [c1Id]: { level: '核定', points: parseInt(e.target.value) || 0 } }))}
+                        className="w-24 h-9 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                        placeholder="點數"
+                      />
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <div className="flex flex-col gap-2 items-center">
+                        <input 
+                          type="number"
+                          value={currentC2}
+                          onChange={(e) => setPerfAssess(prev => ({ ...prev, [c2Id]: { level: '核定', points: parseInt(e.target.value) || 0 } }))}
+                          className="w-24 h-9 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                          placeholder="點數"
+                        />
+                        <div className="flex gap-1">
+                          {['優','佳','平'].map(l => (
+                            <button key={l} 
+                              onClick={() => setPerfAssess(prev => ({ ...prev, [c2Id]: { level: l, points: l==='優'?5000:l==='佳'?3000:2000 } }))}
+                              className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-blue-100 rounded border">
+                              {l}
                             </button>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-5 text-right font-mono font-bold text-blue-700 text-lg">
-                      {currentPoints.toLocaleString()} pt
+                      {(currentC1 + currentC2).toLocaleString()} pt
                     </td>
                   </tr>
                 );
@@ -243,7 +283,7 @@ export default function ReviewCenter() {
             </tbody>
           </table>
           {deptMgrView?.length === 0 && (
-            <div className="p-12 text-center text-muted-foreground">查無可評核之人員資料</div>
+            <div className="p-12 text-center text-muted-foreground">查與可評核之人員資料</div>
           )}
         </div>
       ) : (
