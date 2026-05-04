@@ -1,5 +1,12 @@
 # 115年度綜合施工處職安環保協助員系統 — 維護更新日誌
 
+## 📅 2026-05-04 Hotfix (v3.2.6 -> v3.2.7)
+
+### MonthlyReport — ReferenceError: pointsConfig is not defined
+*   **[緊急修正] Empty state 條件殘留舊變數**：v3.2.6 移除 `pointsConfig` state 時，第 857 行的 Empty state 渲染條件 `pointsConfig.length > 0` 未同步更新，導致頁面渲染時拋出 `ReferenceError: pointsConfig is not defined`。改為使用已計算的 `monthlyItemDefs.length > 0` 替代，語義相同且正確。
+
+---
+
 ## 📅 2026-05-04 更新記錄 (v3.2.5 -> v3.2.6)
 
 ### 1. 日曆總覽 (CalendarOverview) — 偶發性 TypeError 修復
