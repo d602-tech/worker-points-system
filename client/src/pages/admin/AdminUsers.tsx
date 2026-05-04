@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { gasPost, gasGet, uploadFileToDrive } from "@/lib/gasApi";
 import { hashPassword, useGasAuthContext } from "@/lib/useGasAuth";
 import { differenceInCalendarDays } from "date-fns";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 // ============================================================
 // 型別
@@ -659,14 +660,14 @@ export default function AdminUsers() {
   const [filterArea, setFilterArea] = useState("全部");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editWorker, setEditWorker] = useState<Worker | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [pwdWorker, setPwdWorker] = useState<Worker | null>(null);
   const [workers, setWorkers] = useState<Worker[]>([]);
-  const [loadingList, setLoadingList] = useState(false);
 
   // 從 GAS API 載入真實人員資料
   const loadWorkers = useCallback(async () => {
     if (!user?.email) return;
-    setLoadingList(true);
+    setIsLoading(true);
     try {
       const res = await gasGet<Record<string, unknown>[]>("getWorkers", { callerEmail: user.email });
       if (res.success && Array.isArray(res.data)) {
@@ -677,7 +678,7 @@ export default function AdminUsers() {
     } catch (err) {
       toast.error(`載入失敗：${String(err)}`);
     } finally {
-      setLoadingList(false);
+      setIsLoading(false);
     }
   }, [user?.email]);
 
@@ -696,7 +697,8 @@ export default function AdminUsers() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative min-h-[400px]">
+      <LoadingOverlay isLoading={isLoading} />
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>

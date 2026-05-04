@@ -155,6 +155,7 @@ export default function AdminAttendance() {
   // 1. 載入人員名單
   useEffect(() => {
     if (!user?.email) return;
+    setIsLoading(true);
     gasGet<any[]>("getWorkers", { callerEmail: user.email }).then(res => {
       if (res.success && Array.isArray(res.data)) {
         const list = res.data.map(w => ({
@@ -164,7 +165,7 @@ export default function AdminAttendance() {
         setWorkers(list);
         if (list.length > 0 && !selectedWorker) setSelectedWorker(list[0].userId);
       }
-    });
+    }).finally(() => setIsLoading(false));
   }, [user?.email]);
 
   // 2. 載入差勤紀錄

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { CheckCircle2, XCircle, AlertTriangle, Eye, ChevronDown, ChevronUp, ChevronsRight } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { CheckCircle2, XCircle, AlertTriangle, Eye, ChevronDown, ChevronUp, ChevronsRight, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -8,11 +8,8 @@ import { gasGet, gasPost } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
 
-// 審核狀態（與 Code.gs actionToStatus 對應）
 type ReviewStatus = "submitted" | "dept_approved" | "billing_confirmed" | "billed" | "rejected";
-
-// 審核動作（與 Code.gs reviewItem action2 對應）
-type ReviewAction = "初審通過" | "退回修改" | "廠商確認" | "廠商退回" | "已請款";
+type ReviewAction = "初審通過" | "退回修改" | "廠商確認" | "廠商退回" | "已請款" | "admin_save";
 
 interface ReviewItem {
   id: string; workerId: string; workerName: string;
@@ -22,7 +19,6 @@ interface ReviewItem {
   perfLevel?: string;
 }
 
-// 將 GAS 原始資料對應到 ReviewItem 介面
 function mapRowToReviewItem(row: any): ReviewItem {
   return {
     id: String(row["紀錄編號"] || row["點數代碼"] || row["itemId"] || ""),
@@ -31,7 +27,7 @@ function mapRowToReviewItem(row: any): ReviewItem {
     yearMonth: String(row["年月"] || row["yearMonth"] || ""),
     category: String(row["類別"] || ""),
     taskName: String(row["工作項目名稱"] || row["itemName"] || ""),
-    points: Number(row["點數"] || 0),
+    points: parseFloat(row["點數"]) || 0,
     status: String(row["狀態"] || "submitted") as ReviewStatus,
     files: String(row["佐證檔案編號"] || "").split(',').filter(Boolean).length,
     note: String(row["備註"] || ""),
@@ -48,7 +44,6 @@ const STATUS_CONFIG: Record<ReviewStatus, { label: string; color: string; icon: 
   rejected:          { label: "已退回",   color: "bg-red-50 text-red-700 border-red-200",            icon: XCircle },
 };
 
-// 根據當前狀態，決定可執行的動作
 function getAvailableActions(status: ReviewStatus): ReviewAction[] {
   switch (status) {
     case "submitted":         return ["初審通過", "退回修改"];
@@ -64,16 +59,8 @@ const ACTION_CONFIG: Record<ReviewAction, { label: string; variant: "approve" | 
   "已請款":   { label: "已請款",   variant: "confirm", color: "bg-slate-600 hover:bg-slate-700" },
   "退回修改": { label: "退回修改", variant: "reject",  color: "" },
   "廠商退回": { label: "廠商退回", variant: "reject",  color: "" },
+  "admin_save": { label: "儲存設定", variant: "confirm", color: "bg-indigo-600 hover:bg-indigo-700" },
 };
-
-const FILTER_OPTIONS: Array<{ value: ReviewStatus | "all"; label: string }> = [
-  { value: "all",              label: "全部" },
-  { value: "submitted",        label: "待初審" },
-  { value: "dept_approved",    label: "初審通過" },
-  { value: "billing_confirmed",label: "廠商確認" },
-  { value: "billed",           label: "已請款" },
-  { value: "rejected",         label: "已退回" },
-];
 
 export default function ReviewCenter() {
   const { user } = useGasAuthContext();
@@ -83,23 +70,23 @@ export default function ReviewCenter() {
   const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
+  const [confirmDialog, setConfirmDialog] = useState<boolean>(false);
 
-  // 1. 載入內容
+  const currentYearMonth = format(new Date(), "yyyy-MM");
+
   const loadItems = useCallback(async () => {
     if (!user?.email) return;
     setIsLoading(true);
     try {
       const res = await gasGet<any[]>("getReviewList", {
         callerEmail: user.email,
-        yearMonth: format(new Date(), "yyyy-MM"), // 預設看當月
+        yearMonth: currentYearMonth,
       });
       if (res.success && Array.isArray(res.data)) {
         setItems(res.data.map(mapRowToReviewItem));
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.email]);
+    } finally { setIsLoading(false); }
+  }, [user?.email, currentYearMonth]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -108,7 +95,6 @@ export default function ReviewCenter() {
 
   const applyAction = async (id: string, action: ReviewAction, workerId: string, yearMonth: string, reason?: string) => {
     if (!user?.email) return;
-    
     setIsLoading(true);
     const assessment = perfAssess[id];
     const res = await gasPost("reviewMonthlyReport", {
@@ -120,7 +106,6 @@ export default function ReviewCenter() {
       perfLevel: assessment?.level || "",
       points: assessment?.points
     });
-
     if (res.success) {
       toast.success(`操作成功：${action}`);
       loadItems();
@@ -128,193 +113,194 @@ export default function ReviewCenter() {
       toast.error(`操作失敗：${res.error}`);
     }
     setRejectDialog(null);
+    setConfirmDialog(false);
     setIsLoading(false);
   };
+
+  const handleBulkSubmit = async () => {
+    // 這裡實作批量提交邏輯 (依次呼叫 applyAction 或後端新增批量 API)
+    // 為了簡單起見，目前透過前端循環呼叫
+    const targetIds = Object.keys(perfAssess);
+    if (targetIds.length === 0) return;
+    setIsLoading(true);
+    for (const id of targetIds) {
+      const item = items.find(i => i.id === id);
+      if (item) {
+        await gasPost("reviewMonthlyReport", {
+          callerEmail: user?.email,
+          workerId: item.workerId,
+          yearMonth: item.yearMonth,
+          action2: "admin_save", // 僅儲存，不改變狀態
+          perfLevel: perfAssess[id].level,
+          points: perfAssess[id].points
+        });
+      }
+    }
+    toast.success("績效評核儲存成功");
+    loadItems();
+    setConfirmDialog(false);
+    setIsLoading(false);
+  };
+
+  // 分組邏輯：如果是經理，直接按人列出 C 類項目
+  const deptMgrView = useMemo(() => {
+    if (user?.role !== "deptMgr") return null;
+    const workers = Array.from(new Set(items.map(i => i.workerId)));
+    return workers.map(wid => {
+      const wItems = items.filter(i => i.workerId === wid && i.category === "C");
+      const name = wItems[0]?.workerName || wid;
+      return { workerId: wid, name, items: wItems };
+    });
+  }, [user?.role, items]);
 
   return (
     <div className="space-y-6 relative min-h-[400px]">
       <LoadingOverlay isLoading={isLoading} />
+      
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">
-            {user?.role === "deptMgr" ? "績效評核" : "審核中心"}
+            {user?.role === "deptMgr" ? "績效評核 (部門管理)" : "審核中心"}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">待處理 {pendingCount} 項</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {user?.role === "deptMgr" ? `本月待評核人員：${deptMgrView?.length || 0} 位` : `待處理 ${pendingCount} 項`}
+          </p>
         </div>
-        <div className="flex gap-1.5 flex-wrap justify-end">
-          {FILTER_OPTIONS.map(({ value, label }) => (
-            <button key={value} onClick={() => setFilterStatus(value)}
-              className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
-                filterStatus === value
-                  ? "bg-blue-700 text-white border-blue-700"
-                  : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
-              {label}
-              {value === "submitted" && pendingCount > 0 && (
-                <span className="ml-1.5 bg-amber-500 text-white text-[10px] rounded-full px-1.5 py-0.5">{pendingCount}</span>
-              )}
-            </button>
+        
+        <div className="flex gap-2">
+          {user?.role === "deptMgr" && (
+            <Button className="bg-indigo-600 hover:bg-indigo-700 gap-1.5 shadow-lg" onClick={() => setConfirmDialog(true)}>
+              <Send className="w-4 h-4" /> 批量儲存評核
+            </Button>
+          )}
+          <div className="flex gap-1.5 no-print">
+            {user?.role !== "deptMgr" && ["all", "submitted", "dept_approved", "billing_confirmed", "billed", "rejected"].map(v => (
+              <button key={v} onClick={() => setFilterStatus(v as any)}
+                className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+                  filterStatus === v ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:bg-muted")}>
+                {v === "all" ? "全部" : STATUS_CONFIG[v as ReviewStatus].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {user?.role === "deptMgr" ? (
+        /* 部門經理批量視圖 */
+        <div className="grid gap-4">
+          {deptMgrView?.map(w => (
+            <div key={w.workerId} className="bg-white rounded-2xl shadow-elegant border border-border/50 p-5 flex items-center justify-between group hover:border-blue-200 transition-all">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-bold text-lg border border-blue-100">{w.name[0]}</div>
+                <div>
+                  <div className="text-base font-bold text-foreground">{w.name}</div>
+                  <div className="text-xs text-muted-foreground font-mono">{w.workerId}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-6">
+                <div className="flex gap-2">
+                  {[
+                    { l: "優", p: 5000, c: "hover:bg-emerald-50 hover:text-emerald-700" },
+                    { l: "佳", p: 3000, c: "hover:bg-blue-50 hover:text-blue-700" },
+                    { l: "平", p: 2000, c: "hover:bg-gray-50 hover:text-gray-700" }
+                  ].map(v => {
+                    const active = perfAssess[w.items[0]?.id]?.level === v.l || (!perfAssess[w.items[0]?.id] && w.items[0]?.perfLevel === v.l);
+                    return (
+                      <button key={v.l}
+                        onClick={() => w.items[0] && setPerfAssess(prev => ({ ...prev, [w.items[0].id]: { level: v.l, points: v.p } }))}
+                        className={cn("px-4 py-2 rounded-xl text-sm font-bold transition-all border-2",
+                          active ? "bg-blue-600 text-white border-blue-600 shadow-md" : `bg-white text-muted-foreground border-dashed border-gray-200 ${v.c}`)}>
+                        {v.l}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-right w-24">
+                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">評核點數</div>
+                   <div className="text-lg font-mono font-bold text-blue-700">{perfAssess[w.items[0]?.id]?.points || (w.items[0]?.perfLevel === '優' ? 5000 : w.items[0]?.perfLevel === '佳' ? 3000 : w.items[0]?.perfLevel === '平' ? 2000 : 0)}</div>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
-      </div>
-
-      {/* 審核流程說明 */}
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
-        {["草稿", "已提交", "初審通過", "廠商確認", "已請款"].map((s, i, arr) => (
-          <span key={s} className="flex items-center gap-1.5">
-            <span className={cn("px-2 py-0.5 rounded-full border",
-              s === "已提交" ? "bg-amber-50 text-amber-700 border-amber-200" :
-              s === "初審通過" ? "bg-blue-50 text-blue-700 border-blue-200" :
-              s === "廠商確認" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-              s === "已請款" ? "bg-slate-100 text-slate-600 border-slate-200" :
-              "bg-muted/40 border-border/30"
-            )}>{s}</span>
-            {i < arr.length - 1 && <ChevronsRight className="w-3 h-3 opacity-40" />}
-          </span>
-        ))}
-        <span className="ml-2 opacity-60">（任一階段可退回修改）</span>
-      </div>
-
-      <div className="space-y-3">
-        {filtered.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-elegant border border-border/50 p-12 text-center text-muted-foreground">
-            目前沒有{filterStatus === "all" ? "" : STATUS_CONFIG[filterStatus as ReviewStatus].label}的項目
-          </div>
-        ) : filtered.map(item => {
-          const isExpanded = expandedId === item.id;
-          const cfg = STATUS_CONFIG[item.status];
-          const StatusIcon = cfg.icon;
-          const actions = getAvailableActions(item.status);
-          return (
-            <div key={item.id} className={cn(
-              "bg-white rounded-2xl shadow-elegant border overflow-hidden transition-all",
-              item.status === "rejected" ? "border-red-200" : "border-border/50"
-            )}>
-              <div className="p-4">
-                <div className="flex items-start gap-3">
+      ) : (
+        /* 標準審核視圖 (billing / admin) */
+        <div className="space-y-3">
+          {filtered.map(item => {
+            const isExpanded = expandedId === item.id;
+            const cfg = STATUS_CONFIG[item.status];
+            const actions = getAvailableActions(item.status);
+            return (
+              <div key={item.id} className={cn("bg-white rounded-2xl shadow-elegant border overflow-hidden transition-all", item.status === "rejected" ? "border-red-200" : "border-border/50")}>
+                <div className="p-4 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-mono text-muted-foreground">{item.id}</span>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50">{item.category}</span>
-                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border", cfg.color)}>
-                        <StatusIcon className="w-3 h-3" />{cfg.label}
-                      </span>
+                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border", cfg.color)}>{cfg.label}</span>
                     </div>
                     <div className="mt-1.5 text-sm font-medium text-foreground truncate">{item.taskName}</div>
-                    <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                       <span>{item.workerName}</span>
                       <span>{item.yearMonth}</span>
-                      {user?.role !== "deptMgr" && (
-                        <span className="font-semibold text-blue-700">{item.points.toLocaleString()} pt</span>
-                      )}
-                      {item.files > 0 && <span>佐證 {item.files} 份</span>}
+                      {user?.role === "billing" && <span className="font-semibold text-blue-700">{item.points.toLocaleString()} pt</span>}
                     </div>
-                    {item.status === "rejected" && item.rejectionReason && (
-                      <div className="mt-2 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />{item.rejectionReason}
-                      </div>
-                    )}
-                    {/* C類績效核定介面 */}
-                    {item.category === "C" && item.status === "submitted" && (
-                      <div className="mt-3 p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center gap-3">
-                        <span className="text-xs font-bold text-blue-700">績效核定：</span>
-                        <div className="flex gap-1.5">
-                          {[
-                            { l: "優", p: 5000 },
-                            { l: "佳", p: 3000 },
-                            { l: "平", p: 2000 }
-                          ].map(v => {
-                            const active = perfAssess[item.id]?.level === v.l || (!perfAssess[item.id] && item.perfLevel === v.l);
-                            return (
-                              <button key={v.l}
-                                onClick={() => setPerfAssess(prev => ({ ...prev, [item.id]: { level: v.l, points: v.p } }))}
-                                className={cn("px-3 py-1 rounded-lg text-xs font-medium transition-all border",
-                                  active ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-muted-foreground border-border hover:border-blue-200")}>
-                                {v.l} ({v.p})
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {item.category === "C" && item.status !== "submitted" && item.perfLevel && (
-                      <div className="mt-2 text-xs font-medium text-blue-700 flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> 已核定：{item.perfLevel}
-                      </div>
-                    )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {actions.map(action => {
-                      const acfg = ACTION_CONFIG[action];
-                      if (acfg.variant === "reject") {
-                        return (
-                          <Button key={action} size="sm" variant="outline"
-                            className="border-red-200 text-red-600 hover:bg-red-50 h-8 px-3 text-xs gap-1"
-                            onClick={() => setRejectDialog({ 
-                              id: item.id, 
-                              workerId: item.workerId, 
-                              yearMonth: item.yearMonth,
-                              action: action as "退回修改" | "廠商退回", 
-                              reason: "" 
-                            })}>
-                            <XCircle className="w-3.5 h-3.5" />{acfg.label}
-                          </Button>
-                        );
-                      }
-                      return (
-                        <Button key={action} size="sm"
-                          className={cn("h-8 px-3 text-xs gap-1", acfg.color)}
-                          onClick={() => applyAction(item.id, action, item.workerId, item.yearMonth)}>
-                          <CheckCircle2 className="w-3.5 h-3.5" />{acfg.label}
-                        </Button>
-                      );
-                    })}
-                    <button onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                      className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                      {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-                    </button>
+                  <div className="flex items-center gap-2">
+                    {actions.map(action => (
+                      <Button key={action} size="sm" className={cn("h-8 px-3 text-xs gap-1", ACTION_CONFIG[action].color)} onClick={() => applyAction(item.id, action, item.workerId, item.yearMonth)}>
+                        {ACTION_CONFIG[action].label}
+                      </Button>
+                    ))}
+                    <button onClick={() => setExpandedId(isExpanded ? null : item.id)} className="p-1.5 rounded-lg hover:bg-muted"><ChevronDown className={cn("w-4 h-4 transition-transform", isExpanded && "rotate-180")} /></button>
                   </div>
                 </div>
-
                 {isExpanded && (
-                  <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
-                    <div className="text-xs text-muted-foreground"><span className="font-medium">備註：</span>{item.note || "無"}</div>
-                    <div className="text-xs text-muted-foreground"><span className="font-medium">人員編號：</span>{item.workerId}</div>
-                    {item.files > 0 && (
-                      <div className="flex gap-2 flex-wrap">
-                        {Array.from({ length: item.files }).map((_, i) => (
-                          <button key={i} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs hover:bg-blue-100 transition-colors">
-                            <Eye className="w-3 h-3" />佐證 {i + 1}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="px-4 pb-4 pt-0 text-xs text-muted-foreground border-t border-border/30 mt-2 pt-3">
+                    <p>備註：{item.note || "無"}</p>
+                    <p>工號：{item.workerId}</p>
                   </div>
                 )}
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 批量儲存確認 Dialog */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-indigo-50 rounded-full text-indigo-600"><AlertTriangle className="w-6 h-6" /></div>
+              <h3 className="text-lg font-bold text-foreground">確認儲存績效評核？</h3>
             </div>
-          );
-        })}
-      </div>
+            <div className="text-sm text-muted-foreground space-y-2 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <p>本次評核摘要：</p>
+              <ul className="list-disc list-inside">
+                <li>待評核總人數：{deptMgrView?.length || 0} 位</li>
+                <li>本次已設定人數：{Object.keys(perfAssess).length} 位</li>
+              </ul>
+              <p className="text-amber-700 font-medium">※ 儲存後資料將即時同步至 Google Sheet。</p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(false)}>取消</Button>
+              <Button className="flex-1 bg-indigo-600 hover:bg-indigo-700" onClick={handleBulkSubmit}>確認並儲存</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 退回 Dialog */}
       {rejectDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-semibold text-foreground mb-1">{rejectDialog.action}</h3>
-            <p className="text-sm text-muted-foreground mb-3">請輸入退回原因（協助員可看到）</p>
-            <textarea
-              rows={3} placeholder="請說明退回原因..."
-              value={rejectDialog.reason}
-              onChange={e => setRejectDialog(prev => prev ? { ...prev, reason: e.target.value } : null)}
-              className="w-full text-sm border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
-            />
-            <div className="flex gap-3 mt-4">
+            <h3 className="text-base font-semibold mb-4">退回修改原因</h3>
+            <textarea className="w-full text-sm border rounded-xl px-3 py-2 mb-4" rows={3} value={rejectDialog.reason} onChange={e => setRejectDialog(p => p ? {...p, reason: e.target.value} : null)} />
+            <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setRejectDialog(null)}>取消</Button>
-              <Button className="flex-1 bg-red-600 hover:bg-red-700"
-                onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.workerId, rejectDialog.yearMonth, rejectDialog.reason)}
-                disabled={!rejectDialog.reason.trim() || isLoading}>
-                確認退回
-              </Button>
+              <Button className="flex-1 bg-red-600" onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.workerId, rejectDialog.yearMonth, rejectDialog.reason)}>確認退回</Button>
             </div>
           </div>
         </div>

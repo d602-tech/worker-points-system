@@ -30,9 +30,9 @@ export default function ReportSummary() {
         const mapped = (workers || []).map((w: any) => {
           const wId = String(w["人員編號"]);
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
-          const reg = Number(snap?.["A類小計"] || 0) + Number(snap?.["B類小計"] || 0) + Number(snap?.["C類金額"] || 0) + Number(snap?.["D類小計"] || 0);
-          const sp = Number(snap?.["S類金額"] || 0);
-          const pen = Number(snap?.["P類扣款"] || 0);
+          const reg = (parseFloat(snap?.["A類小計"]) || 0) + (parseFloat(snap?.["B類小計"]) || 0) + (parseFloat(snap?.["C類金額"]) || 0) + (parseFloat(snap?.["D類小計"]) || 0);
+          const sp = parseFloat(snap?.["S類金額"]) || 0;
+          const pen = parseFloat(snap?.["P類扣款"]) || 0;
           return {
             id: wId, name: String(w["姓名"] || ""), dept: String(w["用人部門"] || ""), area: String(w["服務區域"] || ""),
             reg, sp, pen, total: reg - pen

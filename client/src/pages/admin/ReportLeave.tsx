@@ -46,22 +46,22 @@ export default function ReportLeave() {
           const ySnaps = (yearSnapshots || []).filter((s: any) => s["人員編號"] === wId);
           const atts = (attendance || []).filter((a: any) => a["人員編號"] === wId);
 
-          const totalUsedHours = ySnaps.reduce((sum: number, s: any) => sum + Number(s["特休時數"] || 0), 0);
+          const totalUsedHours = ySnaps.reduce((sum: number, s: any) => sum + (parseFloat(s["特休時數"]) || 0), 0);
           
           const details = atts
-            .filter((a: any) => a["上午狀態"] === "特休" || a["下午狀態"] === "特休" || Number(a["特休時數"] || 0) > 0)
+            .filter((a: any) => a["上午狀態"] === "特休" || a["下午狀態"] === "特休" || (parseFloat(a["特休時數"]) || 0) > 0)
             .map((a: any) => {
               const d = String(a["日期"]).split("-").slice(1).join("/");
-              const h = Number(a["特休時數"] || 0);
+              const h = parseFloat(a["特休時數"]) || 0;
               return `${d}(特休${h}h)`;
             })
             .join(", ");
 
           return {
             id: wId, name: String(w["姓名"] || ""), dept: String(w["用人部門"] || ""), 
-            onboard: String(w["到職日"] || ""), pastExp: Number(w["過往年資天數"] || 0),
-            workDays: Number(snap?.["出勤天數"] || 0), 
-            thisMonthLeaveHours: Number(snap?.["特休時數"] || 0),
+            onboard: String(w["到職日"] || ""), pastExp: parseFloat(w["過往年資天數"]) || 0,
+            workDays: parseFloat(snap?.["出勤天數"]) || 0, 
+            thisMonthLeaveHours: parseFloat(snap?.["特休時數"]) || 0,
             totalUsedHours,
             leaveDetails: details
           };

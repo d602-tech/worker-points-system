@@ -594,7 +594,15 @@ function getWorkers(callerEmail) {
   if (!perm.allowed) return { success: false, error: perm.reason };
 
   var ss = getAppSpreadsheet();
-  var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+  var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS))
+    .filter(function(w) {
+      var role = String(w[COLUMNS.USERS.ROLE] || '');
+      var isActive = String(w[COLUMNS.USERS.IS_ACTIVE]) === 'true';
+      if (perm.callerRole === 'deptMgr' || perm.callerRole === 'billing') {
+        return isActive && (role === 'worker' || role === 'billing');
+      }
+      return true;
+    });
 
   // deptMgr 只能看本部門
   if (perm.callerRole === 'deptMgr') {
@@ -1452,7 +1460,7 @@ function reviewItem(callerEmail, action2, workerId, yearMonth, reason, perfLevel
 
     // 處理 C 類績效核定 (由 deptMgr 在初審時設定)
     if (perfLevel && (action2 === '初審通過' || action2 === 'admin_save')) {
-      updatePerfAssessment(ss, workerId, yearMonth, perfLevel, points);
+      updatePerfAssessment(ss, workerId, yearMonth, perfLevel, parseFloat(points) || 0);
     }
 
     writeReviewLog(ss, workerId, yearMonth, perm.callerUserId, action2, reason,
@@ -1624,7 +1632,7 @@ function generateMonthlySnapshot(ss, workerId, yearMonth, confirmerId) {
     leaveHrs += lh;
   });
 
-  var monthTotal = aTotal + bTotal + cAmount + dTotal + sAmount - pDeduction;
+  var monthTotal = (aTotal || 0) + (bTotal || 0) + (cAmount || 0) + (dTotal || 0) + (sAmount || 0) - (pDeduction || 0);
   var now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
 
   var snapshotSheet = ss.getSheetByName(SHEETS.MONTHLY_SNAPSHOT);
@@ -1632,8 +1640,8 @@ function generateMonthlySnapshot(ss, workerId, yearMonth, confirmerId) {
     generateId('MS'),
     workerId,
     yearMonth,
-    aTotal, bTotal, cAmount, dTotal, sAmount, pDeduction,
-    monthTotal, workDays, leaveHrs, now, confirmerId,
+    aTotal || 0, bTotal || 0, cAmount || 0, dTotal || 0, sAmount || 0, pDeduction || 0,
+    monthTotal || 0, workDays || 0, leaveHrs || 0, now, confirmerId, role,
   ]);
 
   Logger.log('產生月結快照：' + workerId + ' ' + yearMonth +
@@ -1811,13 +1819,23 @@ function getReviewList(callerEmail, status, yearMonth) {
   records = records.filter(function(r) {
     if (status && r[COLUMNS.MONTHLY_POINTS.STATUS] !== status) return false;
     if (yearMonth && r[COLUMNS.MONTHLY_POINTS.YEAR_MONTH] !== yearMonth) return false;
+    
+    // 需與人員資料 join 比對角色與部門
+    var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
+    var worker  = workers.find(function(w) {
+      return w[COLUMNS.USERS.ID] === r[COLUMNS.MONTHLY_POINTS.USER_ID];
+    });
+    
+    if (!worker) return false;
+    
+    // 管理角色只能看到協助員或會計
+    if (perm.callerRole === 'deptMgr' || perm.callerRole === 'billing') {
+      var wRole = String(worker[COLUMNS.USERS.ROLE] || '');
+      if (wRole !== 'worker' && wRole !== 'billing') return false;
+    }
+
     if (perm.callerRole === 'deptMgr') {
-      // 需與人員資料 join 比對部門
-      var workers = sheetToObjects(ss.getSheetByName(SHEETS.USERS));
-      var worker  = workers.find(function(w) {
-        return w[COLUMNS.USERS.ID] === r[COLUMNS.MONTHLY_POINTS.USER_ID];
-      });
-      if (!worker || worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) return false;
+      if (worker[COLUMNS.USERS.DEPARTMENT] !== perm.callerDept) return false;
     }
     return true;
   });

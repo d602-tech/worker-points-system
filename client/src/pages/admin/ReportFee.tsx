@@ -34,11 +34,15 @@ function getContractDaysInfo(yearMonth: string) {
   const [year, month] = yearMonth.split("-").map(Number);
   const dTotal = new Date(year, month, 0).getDate();
   let dContract = dTotal;
-  if (yearMonth === "2026-04") dContract = 9; 
-  else if (yearMonth === "2027-06") dContract = 21; 
-  else if (year < 2026 || (year === 2026 && month < 4)) dContract = 0;
+  
+  // 動態破月引擎：115年4月與116年6月
+  if (yearMonth === "2026-04") return { ratio: 0.3, dContract: 9, dTotal: 30 }; 
+  if (yearMonth === "2027-06") return { ratio: 0.7, dContract: 21, dTotal: 30 }; 
+
+  if (year < 2026 || (year === 2026 && month < 4)) dContract = 0;
   else if (year > 2027 || (year === 2027 && month > 6)) dContract = 0;
-  return { dContract, dTotal };
+  
+  return { ratio: dContract / dTotal, dContract, dTotal };
 }
 
 interface WorkerData {
@@ -64,8 +68,14 @@ export default function ReportFee() {
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
           return {
             id: wId, type: String(w["職務類型"] || ""),
-            a: Number(snap?.["A類小計"] || 0), b: Number(snap?.["B類小計"] || 0), c: Number(snap?.["C類金額"] || 0), d: Number(snap?.["D類小計"] || 0),
-            s: Number(snap?.["S類金額"] || 0), p: Number(snap?.["P類扣款"] || 0), workDays: Number(snap?.["出勤天數"] || 0), leaveHours: Number(snap?.["特休時數"] || 0),
+            a: parseFloat(snap?.["A類小計"]) || 0, 
+            b: parseFloat(snap?.["B類小計"]) || 0, 
+            c: parseFloat(snap?.["C類金額"]) || 0, 
+            d: parseFloat(snap?.["D類小計"]) || 0,
+            s: parseFloat(snap?.["S類金額"]) || 0, 
+            p: parseFloat(snap?.["P類扣款"]) || 0, 
+            workDays: parseFloat(snap?.["出勤天數"]) || 0, 
+            leaveHours: parseFloat(snap?.["特休時數"]) || 0,
           };
         });
         setReportData(mapped);
@@ -75,20 +85,20 @@ export default function ReportFee() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const { dContract, dTotal } = getContractDaysInfo(selectedMonth);
-  const ratio = dContract / dTotal;
+  const { ratio, dContract, dTotal } = getContractDaysInfo(selectedMonth);
   const calendarWorkDays = getWorkDaysInMonth(selectedMonth);
 
   const stats = useMemo(() => {
     const data = { general: 0, offshore: 0, safety: 0, environment: 0, leaveS: 0, penaltyP: 0, actualWorkHoursSum: 0, totalConfiguredWorkers: reportData.length };
     reportData.forEach(w => {
-      const pts = w.a + w.b + w.c + w.d;
+      const pts = (w.a || 0) + (w.b || 0) + (w.c || 0) + (w.d || 0);
       if (w.type.includes("一般")) data.general += pts;
       else if (w.type.includes("離島")) data.offshore += pts;
       else if (w.type.includes("職安")) data.safety += pts;
       else if (w.type.includes("環保")) data.environment += pts;
-      data.leaveS += w.s; data.penaltyP += w.p;
-      data.actualWorkHoursSum += (w.workDays * 8);
+      data.leaveS += (w.s || 0); 
+      data.penaltyP += (w.p || 0);
+      data.actualWorkHoursSum += ((w.workDays || 0) * 8);
     });
     return data;
   }, [reportData]);
