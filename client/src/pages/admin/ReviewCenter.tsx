@@ -7,6 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet, gasPost } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 type ReviewStatus = "submitted" | "dept_approved" | "billing_confirmed" | "billed" | "rejected";
 type ReviewAction = "初審通過" | "退回修改" | "廠商確認" | "廠商退回" | "已請款" | "admin_save";
@@ -69,8 +70,10 @@ export default function ReviewCenter() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // 績效相關狀態
   const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
-  const [confirmDialog, setConfirmDialog] = useState<boolean>(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [allWorkers, setAllWorkers] = useState<{ userId: string; name: string; workerType: string }[]>([]);
   const [pointDefs, setPointDefs] = useState<any[]>([]);
 
@@ -111,69 +114,7 @@ export default function ReviewCenter() {
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  const filtered = filterStatus === "all" ? items : items.filter(i => i.status === filterStatus);
-  const pendingCount = items.filter(i => i.status === "submitted" || i.status === "dept_approved").length;
-
-  const applyAction = async (id: string, action: ReviewAction, workerId: string, yearMonth: string, reason?: string) => {
-    if (!user?.email) return;
-    setIsLoading(true);
-    const assessment = perfAssess[id];
-    const res = await gasPost("reviewMonthlyReport", {
-      callerEmail: user.email,
-      workerId: workerId,
-      yearMonth: yearMonth,
-      action2: action,
-      reason: reason || "",
-      perfLevel: assessment?.level || "",
-      points: assessment?.points
-    });
-    if (res.success) {
-      toast.success(`操作成功：${action}`);
-      loadItems();
-    } else {
-      toast.error(`操作失敗：${res.error}`);
-    }
-    setRejectDialog(null);
-    setConfirmDialog(false);
-    setIsLoading(false);
-  };
-
-  const handleBulkSubmit = async () => {
-    const userIds = Object.keys(perfAssess);
-    if (userIds.length === 0) return;
-    setIsLoading(true);
-    try {
-      for (const uid of userIds) {
-        const assessment = perfAssess[uid];
-        const worker = allWorkers.find(w => w.userId === uid);
-        if (!worker) continue;
-
-        // 重新計算點數 (包含破月)
-        const rules = perfRulesMap[worker.workerType] || perfRulesMap.general;
-        const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
-        const finalPoints = Math.round((rules[assessment.level] || 5000) * proration);
-
-        await gasPost("reviewMonthlyReport", {
-          callerEmail: user?.email,
-          workerId: uid,
-          yearMonth: currentYearMonth,
-          action2: "admin_save",
-          perfLevel: assessment.level,
-          points: finalPoints
-        });
-      }
-      toast.success("績效評核已同步至 Google Sheet");
-      loadItems();
-      setConfirmDialog(false);
-      setPerfAssess({}); // 清空暫存
-    } catch (err) {
-      toast.error("儲存過程發生錯誤");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 解析點數定義規則
+  // 解析點數定義規則 (Memoized)
   const perfRulesMap = useMemo(() => {
     const map: Record<string, any> = {
       general: { "優": 5000, "佳": 3000, "平": 2000 },
@@ -183,7 +124,6 @@ export default function ReviewCenter() {
     };
 
     if (pointDefs.length > 0) {
-      // 找出所有 C 類「臨時交辦與績效」項目
       const cItems = pointDefs.filter(p => p["類別"] === "C" && p["工作項目名稱"].includes("績效"));
       cItems.forEach(item => {
         const type = item["職務類型"] || "general";
@@ -202,7 +142,60 @@ export default function ReviewCenter() {
     return map;
   }, [pointDefs]);
 
-  // 分組邏輯：如果是主管，直接列出所有部門成員
+  const applyAction = async (id: string, action: ReviewAction, workerId: string, yearMonth: string, reason?: string) => {
+    if (!user?.email) return;
+    setIsLoading(true);
+    const res = await gasPost("reviewMonthlyReport", {
+      callerEmail: user.email,
+      workerId: workerId,
+      yearMonth: yearMonth,
+      action2: action,
+      reason: reason || ""
+    });
+    if (res.success) {
+      toast.success(`操作成功：${action}`);
+      loadItems();
+    } else {
+      toast.error(`操作失敗：${res.error}`);
+    }
+    setRejectDialog(null);
+    setIsLoading(false);
+  };
+
+  const handleBulkSubmit = async () => {
+    const userIds = Object.keys(perfAssess);
+    if (userIds.length === 0) return;
+    setIsLoading(true);
+    setShowConfirm(false);
+    try {
+      for (const uid of userIds) {
+        const assessment = perfAssess[uid];
+        const worker = allWorkers.find(w => w.userId === uid);
+        if (!worker) continue;
+
+        const rules = perfRulesMap[worker.workerType] || perfRulesMap.general;
+        const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
+        const finalPoints = Math.round((rules[assessment.level] || 2000) * proration);
+
+        await gasPost("reviewMonthlyReport", {
+          callerEmail: user?.email,
+          workerId: uid,
+          yearMonth: currentYearMonth,
+          action2: "admin_save",
+          perfLevel: assessment.level,
+          points: finalPoints
+        });
+      }
+      toast.success("績效評核已同步至 Google Sheet");
+      loadItems();
+      setPerfAssess({});
+    } catch (err) {
+      toast.error("儲存過程發生錯誤");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const deptMgrView = useMemo(() => {
     if (user?.role !== "deptMgr") return null;
     return allWorkers.map(w => {
@@ -210,6 +203,9 @@ export default function ReviewCenter() {
       return { ...w, items: wItems };
     });
   }, [user?.role, allWorkers, items]);
+
+  const filtered = filterStatus === "all" ? items : items.filter(i => i.status === filterStatus);
+  const pendingCount = items.filter(i => i.status === "submitted" || i.status === "dept_approved").length;
 
   return (
     <div className="space-y-6 relative min-h-[400px]">
@@ -227,24 +223,14 @@ export default function ReviewCenter() {
         
         <div className="flex gap-2">
           {user?.role === "deptMgr" && (
-            <Button className="bg-blue-700 hover:bg-blue-800 gap-1.5 shadow-lg" onClick={() => setConfirmDialog(true)}>
+            <Button className="bg-blue-700 hover:bg-blue-800 gap-1.5 shadow-lg" onClick={() => setShowConfirm(true)}>
               <Send className="w-4 h-4" /> 上傳績效評核
             </Button>
           )}
-          <div className="flex gap-1.5 no-print">
-            {user?.role !== "deptMgr" && ["all", "submitted", "dept_approved", "billing_confirmed", "billed", "rejected"].map(v => (
-              <button key={v} onClick={() => setFilterStatus(v as any)}
-                className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
-                  filterStatus === v ? "bg-blue-700 text-white border-blue-700" : "bg-white text-muted-foreground border-border hover:bg-muted")}>
-                {v === "all" ? "全部" : STATUS_CONFIG[v as ReviewStatus].label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
       {user?.role === "deptMgr" ? (
-        /* 部門主管直接填報視圖 */
         <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -257,24 +243,20 @@ export default function ReviewCenter() {
             <tbody className="divide-y divide-border/30">
               {deptMgrView?.map(w => {
                 const rules = perfRulesMap[w.workerType] || perfRulesMap.general;
-
-                // 破月比例計算
                 const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
                 const hasProration = proration < 1.0;
 
                 const existingItem = w.items[0];
                 const wId = w.userId;
-                
                 const currentData = perfAssess[wId] || { 
-                  level: existingItem?.perfLevel || "平", 
-                  points: 0 
+                  level: existingItem?.perfLevel || "平"
                 };
 
                 const basePoints = rules[currentData.level] || 0;
                 const finalPoints = Math.round(basePoints * proration);
 
                 return (
-                  <tr key={wId} className="hover:bg-blue-50/30 transition-colors group">
+                  <tr key={wId} className="hover:bg-blue-50/30 transition-colors">
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-bold border border-blue-100">
@@ -282,10 +264,7 @@ export default function ReviewCenter() {
                         </div>
                         <div>
                           <div className="font-bold text-foreground">{w.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-2">
-                            <span>{wId}</span>
-                            <span className="bg-slate-100 px-1 rounded text-slate-500 uppercase">{w.workerType}</span>
-                          </div>
+                          <div className="text-[10px] text-muted-foreground font-mono uppercase">{w.workerType} · {wId}</div>
                         </div>
                       </div>
                     </td>
@@ -293,7 +272,7 @@ export default function ReviewCenter() {
                       <div className="flex gap-2 justify-center">
                         {["優", "佳", "平"].map(l => (
                           <button key={l} 
-                            onClick={() => setPerfAssess(prev => ({ ...prev, [wId]: { ...currentData, level: l } }))}
+                            onClick={() => setPerfAssess(prev => ({ ...prev, [wId]: { level: l, points: rules[l] } }))}
                             className={cn(
                               "px-6 py-2.5 rounded-xl border-2 text-sm font-bold transition-all",
                               currentData.level === l 
@@ -324,115 +303,91 @@ export default function ReviewCenter() {
               })}
             </tbody>
           </table>
-          {deptMgrView?.length === 0 && (
-            <div className="p-16 text-center text-muted-foreground">目前查無協助員名單</div>
-          )}
         </div>
       ) : (
-        /* 標準審核視圖 (billing / admin) */
         <div className="space-y-3">
           {filtered.map(item => {
             const isExpanded = expandedId === item.id;
             const cfg = STATUS_CONFIG[item.status];
             const actions = getAvailableActions(item.status);
             return (
-              <div key={item.id} className={cn("bg-white rounded-2xl shadow-elegant border overflow-hidden transition-all", item.status === "rejected" ? "border-red-200" : "border-border/50")}>
+              <div key={item.id} className="bg-white rounded-2xl shadow-elegant border overflow-hidden border-border/50">
                 <div className="p-4 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-mono text-muted-foreground">{item.id}</span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50">{item.category}</span>
-                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border", cfg.color)}>{cfg.label}</span>
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <span className="font-mono text-muted-foreground">{item.id}</span>
+                      <span className="font-bold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50">{item.category}</span>
+                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium border", cfg.color)}>{cfg.label}</span>
                     </div>
                     <div className="mt-1.5 text-sm font-medium text-foreground truncate">{item.taskName}</div>
                     <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                       <span>{item.workerName}</span>
-                      <span>{item.yearMonth}</span>
-                      {user?.role === "billing" && <span className="font-semibold text-blue-700">{item.points.toLocaleString()} pt</span>}
+                      <span className="font-semibold text-blue-700">{item.points.toLocaleString()} 點</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {actions.map(action => (
-                      <Button key={action} size="sm" className={cn("h-8 px-3 text-xs gap-1", ACTION_CONFIG[action].color)} onClick={() => applyAction(item.id, action, item.workerId, item.yearMonth)}>
+                      <Button key={action} size="sm" className={cn("h-8 px-3 text-xs", ACTION_CONFIG[action].color)} onClick={() => applyAction(item.id, action, item.workerId, item.yearMonth)}>
                         {ACTION_CONFIG[action].label}
                       </Button>
                     ))}
                     <button onClick={() => setExpandedId(isExpanded ? null : item.id)} className="p-1.5 rounded-lg hover:bg-muted"><ChevronDown className={cn("w-4 h-4 transition-transform", isExpanded && "rotate-180")} /></button>
                   </div>
                 </div>
-                {isExpanded && (
-                  <div className="px-4 pb-4 pt-0 text-xs text-muted-foreground border-t border-border/30 mt-2 pt-3">
-                    <p>備註：{item.note || "無"}</p>
-                    <p>工號：{item.workerId}</p>
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* 批量儲存確認 Dialog */}
-      {confirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-indigo-50 rounded-full text-indigo-600"><AlertTriangle className="w-6 h-6" /></div>
-              <h3 className="text-lg font-bold text-foreground">確認儲存績效評核摘要</h3>
-            </div>
-            
-            <div className="overflow-x-auto border rounded-xl mb-6">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-muted-foreground border-b">
-                  <tr>
-                    <th className="px-4 py-2">姓名</th>
-                    <th className="px-4 py-2 text-center">身分</th>
-                    <th className="px-4 py-2 text-center">評等</th>
-                    <th className="px-4 py-2 text-right">折算前</th>
-                    <th className="px-4 py-2 text-right">折算後(實得)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {Object.entries(perfAssess).map(([uid, data]) => {
-                    const worker = allWorkers.find(w => w.userId === uid);
-                    const rules = perfRulesMap[worker?.workerType || "general"] || perfRulesMap.general;
-                    const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
-                    const base = rules[data.level] || 0;
-                    const final = Math.round(base * proration);
-                    return (
-                      <tr key={uid}>
-                        <td className="px-4 py-2 font-medium">{worker?.name}</td>
-                        <td className="px-4 py-2 text-center uppercase text-[10px]">{worker?.workerType}</td>
-                        <td className="px-4 py-2 text-center font-bold text-orange-600">{data.level}</td>
-                        <td className="px-4 py-2 text-right text-muted-foreground">{base.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-right font-bold text-blue-700">{final.toLocaleString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="text-sm text-muted-foreground space-y-2 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <p className="text-amber-700 font-bold">※ 儲存後資料將即時同步至 Google Sheet 每月點數分頁。</p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(false)}>取消</Button>
-              <Button className="flex-1 bg-indigo-600 hover:bg-indigo-700" onClick={handleBulkSubmit}>確認並上傳</Button>
-            </div>
+      {/* 統一確認視窗 */}
+      <ConfirmDialog
+        isOpen={showConfirm}
+        title="確認上傳績效評核摘要"
+        variant="indigo"
+        onCancel={() => setShowConfirm(false)}
+        onConfirm={handleBulkSubmit}
+        description={
+          <div className="overflow-x-auto border rounded-xl mt-4">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 text-muted-foreground border-b">
+                <tr>
+                  <th className="px-4 py-2">姓名</th>
+                  <th className="px-4 py-2 text-center">身分</th>
+                  <th className="px-4 py-2 text-center">評等</th>
+                  <th className="px-4 py-2 text-right">實得點數</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {Object.entries(perfAssess).map(([uid, data]) => {
+                  const worker = allWorkers.find(w => w.userId === uid);
+                  const rules = perfRulesMap[worker?.workerType || "general"] || perfRulesMap.general;
+                  const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
+                  const final = Math.round((rules[data.level] || 2000) * proration);
+                  return (
+                    <tr key={uid}>
+                      <td className="px-4 py-2 font-medium">{worker?.name}</td>
+                      <td className="px-4 py-2 text-center uppercase text-[10px]">{worker?.workerType}</td>
+                      <td className="px-4 py-2 text-center font-bold text-orange-600">{data.level}</td>
+                      <td className="px-4 py-2 text-right font-bold text-blue-700">{final.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        }
+      />
 
-      {/* 退回 Dialog */}
+      {/* 退回原因視窗 */}
       {rejectDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-semibold mb-4">退回修改原因</h3>
-            <textarea className="w-full text-sm border rounded-xl px-3 py-2 mb-4" rows={3} value={rejectDialog.reason} onChange={e => setRejectDialog(p => p ? {...p, reason: e.target.value} : null)} />
+            <h3 className="text-base font-semibold mb-4 text-foreground">退回修改原因</h3>
+            <textarea className="w-full text-sm border rounded-xl px-3 py-2 mb-4 focus:ring-2 focus:ring-blue-500 outline-none" rows={3} value={rejectDialog.reason} onChange={e => setRejectDialog(p => p ? {...p, reason: e.target.value} : null)} placeholder="請輸入退回原因..." />
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setRejectDialog(null)}>取消</Button>
-              <Button className="flex-1 bg-red-600" onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.workerId, rejectDialog.yearMonth, rejectDialog.reason)}>確認退回</Button>
+              <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={() => applyAction(rejectDialog.id, rejectDialog.action, rejectDialog.workerId, rejectDialog.yearMonth, rejectDialog.reason)}>確認退回</Button>
             </div>
           </div>
         </div>
