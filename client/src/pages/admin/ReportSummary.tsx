@@ -136,12 +136,11 @@ export default function ReportSummary() {
 
                 <table className="w-full border-collapse border border-black text-[10px]">
                   <thead>
-                    <tr className="bg-gray-100 h-8 font-bold">
+                    <tr className="bg-gray-100 h-8 font-bold text-[11px]">
                       <th className="border border-black w-16">日期</th>
                       <th className="border border-black w-24">類別</th>
                       <th className="border border-black">工作項目摘要</th>
-                      <th className="border border-black w-20">點數</th>
-                      <th className="border border-black w-16">狀態</th>
+                      <th className="border border-black w-28">完成點數</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -152,24 +151,20 @@ export default function ReportSummary() {
                           {tasks.map((t, i) => <div key={i}>{t["類別"] || t["itemId"]?.split('-')[1]}</div>)}
                         </td>
                         <td className="border border-black px-2">
-                          {tasks.map((t, i) => <div key={i} className="truncate max-w-[300px]">{t["工作項目名稱"] || t["itemName"]}</div>)}
+                          {tasks.map((t, i) => <div key={i} className="truncate max-w-[400px]">{t["工作項目名稱"] || t["itemName"]}</div>)}
                         </td>
-                        <td className="border border-black text-center font-mono">
+                        <td className="border border-black text-center font-mono font-bold text-blue-800">
                           {tasks.map((t, i) => <div key={i}>{Math.round(t["點數"]).toLocaleString()}</div>)}
-                        </td>
-                        <td className="border border-black text-center text-[8px]">
-                          {tasks.map((t, i) => <div key={i}>{t["狀態"] === "submitted" ? "待審" : "核定"}</div>)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-gray-50 font-bold h-10">
-                      <td colSpan={3} className="border border-black text-right px-4 text-xs">本月個人總點數合計 (A+B+C+D)：</td>
-                      <td className="border border-black text-center font-mono text-blue-700 text-sm font-black">
+                    <tr className="bg-blue-50/50 font-bold h-12 text-sm">
+                      <td colSpan={3} className="border border-black text-right px-6 text-xs tracking-widest">本月個人工作點數合計 (A+B+C+D)：</td>
+                      <td className="border border-black text-center font-mono text-blue-700 font-black text-xl">
                         {Math.round(worker.reg).toLocaleString()}
                       </td>
-                      <td className="border border-black"></td>
                     </tr>
                   </tfoot>
                 </table>

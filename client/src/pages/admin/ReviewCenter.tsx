@@ -69,9 +69,8 @@ export default function ReviewCenter() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
-  const [confirmDialog, setConfirmDialog] = useState<boolean>(false);
   const [allWorkers, setAllWorkers] = useState<{ userId: string; name: string; workerType: string }[]>([]);
+  const [pointDefs, setPointDefs] = useState<any[]>([]);
 
   const currentYearMonth = format(new Date(), "yyyy-MM");
 
@@ -88,15 +87,21 @@ export default function ReviewCenter() {
         setItems(res.data.map(mapRowToReviewItem));
       }
 
-      // 2. 如果是主管，載入所有部門成員以進行填報
+      // 2. 如果是主管，載入所有部門成員與點數定義以進行填報
       if (user.role === "deptMgr") {
-        const wRes = await gasGet<any[]>("getWorkers", { callerEmail: user.email });
+        const [wRes, pRes] = await Promise.all([
+          gasGet<any[]>("getWorkers", { callerEmail: user.email }),
+          gasGet<any[]>("getPointDefs")
+        ]);
         if (wRes.success && Array.isArray(wRes.data)) {
           setAllWorkers(wRes.data.map(w => ({
             userId: String(w["人員編號"] || ""),
             name: String(w["姓名"] || ""),
             workerType: String(w["職務類型"] || "general")
           })));
+        }
+        if (pRes.success && Array.isArray(pRes.data)) {
+          setPointDefs(pRes.data);
         }
       }
     } finally { setIsLoading(false); }
@@ -142,13 +147,7 @@ export default function ReviewCenter() {
         if (!worker) continue;
 
         // 重新計算點數 (包含破月)
-        const perfRules: Record<string, any> = {
-          general: { "優": 10000, "佳": 8000, "平": 5000 },
-          offshore: { "優": 12000, "佳": 10000, "平": 7000 },
-          safety: { "優": 10000, "佳": 8000, "平": 5000 },
-          environment: { "優": 8000, "佳": 6000, "平": 3000 },
-        };
-        const rules = perfRules[worker.workerType] || perfRules.general;
+        const rules = perfRulesMap[worker.workerType] || perfRulesMap.general;
         const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
         const finalPoints = Math.round((rules[assessment.level] || 5000) * proration);
 
@@ -171,6 +170,35 @@ export default function ReviewCenter() {
       setIsLoading(false);
     }
   };
+
+  // 解析點數定義規則
+  const perfRulesMap = useMemo(() => {
+    const map: Record<string, any> = {
+      general: { "優": 5000, "佳": 3000, "平": 2000 },
+      offshore: { "優": 7200, "佳": 5200, "平": 4200 },
+      safety: { "優": 5000, "佳": 3000, "平": 2000 },
+      environment: { "優": 2000, "佳": 1000, "平": 500 },
+    };
+
+    if (pointDefs.length > 0) {
+      // 找出所有 C 類「臨時交辦與績效」項目
+      const cItems = pointDefs.filter(p => p["類別"] === "C" && p["工作項目名稱"].includes("績效"));
+      cItems.forEach(item => {
+        const type = item["職務類型"] || "general";
+        const note = item["備註"] || "";
+        const parts = note.split('/');
+        const levelMap: any = {};
+        parts.forEach((p: string) => {
+          const match = p.match(/(優|佳|平)(\d+)/);
+          if (match) levelMap[match[1]] = parseInt(match[2]);
+        });
+        if (Object.keys(levelMap).length > 0) {
+          map[type] = levelMap;
+        }
+      });
+    }
+    return map;
+  }, [pointDefs]);
 
   // 分組邏輯：如果是主管，直接列出所有部門成員
   const deptMgrView = useMemo(() => {
@@ -226,14 +254,7 @@ export default function ReviewCenter() {
             </thead>
             <tbody className="divide-y divide-border/30">
               {deptMgrView?.map(w => {
-                // 點數規則：優=10000, 佳=8000, 平=5000 (一般型)
-                const perfRules: Record<string, any> = {
-                  general: { "優": 10000, "佳": 8000, "平": 5000 },
-                  offshore: { "優": 12000, "佳": 10000, "平": 7000 },
-                  safety: { "優": 10000, "佳": 8000, "平": 5000 },
-                  environment: { "優": 8000, "佳": 6000, "平": 3000 },
-                };
-                const rules = perfRules[w.workerType] || perfRules.general;
+                const rules = perfRulesMap[w.workerType] || perfRulesMap.general;
 
                 // 破月比例計算
                 const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
@@ -259,7 +280,10 @@ export default function ReviewCenter() {
                         </div>
                         <div>
                           <div className="font-bold text-foreground">{w.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono">{wId}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-2">
+                            <span>{wId}</span>
+                            <span className="bg-slate-100 px-1 rounded text-slate-500 uppercase">{w.workerType}</span>
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -283,9 +307,13 @@ export default function ReviewCenter() {
                       <div className="font-mono font-bold text-blue-700 text-2xl">
                         {finalPoints.toLocaleString()}
                       </div>
-                      {hasProration && (
+                      {hasProration ? (
                         <div className="text-[10px] text-amber-600 font-bold mt-1 animate-pulse">
-                          (已依破月比例 ×{proration} 折算)
+                          (已依破月比例 ×{proration} 折算, 實得 {finalPoints.toLocaleString()} 點)
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          全月額度：{basePoints.toLocaleString()} 點
                         </div>
                       )}
                     </td>
@@ -345,22 +373,50 @@ export default function ReviewCenter() {
       {/* 批量儲存確認 Dialog */}
       {confirmDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-indigo-50 rounded-full text-indigo-600"><AlertTriangle className="w-6 h-6" /></div>
-              <h3 className="text-lg font-bold text-foreground">確認儲存績效評核？</h3>
+              <h3 className="text-lg font-bold text-foreground">確認儲存績效評核摘要</h3>
             </div>
+            
+            <div className="overflow-x-auto border rounded-xl mb-6">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-muted-foreground border-b">
+                  <tr>
+                    <th className="px-4 py-2">姓名</th>
+                    <th className="px-4 py-2 text-center">身分</th>
+                    <th className="px-4 py-2 text-center">評等</th>
+                    <th className="px-4 py-2 text-right">折算前</th>
+                    <th className="px-4 py-2 text-right">折算後(實得)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {Object.entries(perfAssess).map(([uid, data]) => {
+                    const worker = allWorkers.find(w => w.userId === uid);
+                    const rules = perfRulesMap[worker?.workerType || "general"] || perfRulesMap.general;
+                    const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
+                    const base = rules[data.level] || 0;
+                    const final = Math.round(base * proration);
+                    return (
+                      <tr key={uid}>
+                        <td className="px-4 py-2 font-medium">{worker?.name}</td>
+                        <td className="px-4 py-2 text-center uppercase text-[10px]">{worker?.workerType}</td>
+                        <td className="px-4 py-2 text-center font-bold text-orange-600">{data.level}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{base.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right font-bold text-blue-700">{final.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
             <div className="text-sm text-muted-foreground space-y-2 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <p>本次評核摘要：</p>
-              <ul className="list-disc list-inside">
-                <li>待評核總人數：{deptMgrView?.length || 0} 位</li>
-                <li>本次已設定人數：{Object.keys(perfAssess).length} 位</li>
-              </ul>
-              <p className="text-amber-700 font-medium">※ 儲存後資料將即時同步至 Google Sheet。</p>
+              <p className="text-amber-700 font-bold">※ 儲存後資料將即時同步至 Google Sheet 每月點數分頁。</p>
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(false)}>取消</Button>
-              <Button className="flex-1 bg-indigo-600 hover:bg-indigo-700" onClick={handleBulkSubmit}>確認並儲存</Button>
+              <Button className="flex-1 bg-indigo-600 hover:bg-indigo-700" onClick={handleBulkSubmit}>確認並上傳</Button>
             </div>
           </div>
         </div>
