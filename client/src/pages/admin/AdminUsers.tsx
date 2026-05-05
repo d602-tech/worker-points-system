@@ -12,6 +12,7 @@ import { gasPost, gasGet, uploadFileToDrive } from "@/lib/gasApi";
 import { hashPassword, useGasAuthContext } from "@/lib/useGasAuth";
 import { differenceInCalendarDays } from "date-fns";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { isAssistant } from "@/lib/utils";
 
 // ============================================================
 // 型別
@@ -699,6 +700,7 @@ export default function AdminUsers() {
   useEffect(() => { loadWorkers(); }, [loadWorkers]);
 
   const filtered = workers.filter(w => {
+    if (!isAssistant(w.userId)) return false; // 白名單過濾
     const typeLabel = WORKER_TYPE_LABELS[w.workerType];
     const matchSearch = !search || w.name.includes(search) || w.userId.includes(search) || w.email.includes(search);
     const matchType = filterType === "全部" || typeLabel === filterType;

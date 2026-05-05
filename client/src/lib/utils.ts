@@ -41,3 +41,32 @@ export function safeFormat(
     return fallback;
   }
 }
+
+/**
+ * 契約期間鎖定: 115/04/22 ~ 116/06/21
+ */
+export const CONTRACT_START = "2026-04-22";
+export const CONTRACT_END = "2027-06-21";
+
+/**
+ * 判斷是否為協助員白名單 (USR01~USR11)
+ */
+export function isAssistant(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  // 匹配 USR01 ~ USR11
+  const match = userId.toUpperCase().match(/^USR(0[1-9]|1[0-1])$/);
+  return !!match;
+}
+
+/**
+ * 轉換為民國年格式: 115/04/22
+ */
+export function toMinguoDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  const year = date.getFullYear() - 1911;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}/${month}/${day}`;
+}

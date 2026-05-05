@@ -4,6 +4,7 @@
  * 含中文大寫金額轉換
  */
 import * as XLSX from 'xlsx';
+import { toMinguoDate } from './utils';
 
 // ============================================================
 // 中文大寫金額轉換
@@ -266,7 +267,7 @@ export function exportLeaveStatReport(
     [title],
     headers,
     ...rows.map(r => [
-      r.workerId, r.workerName, r.department, r.onboardDate,
+      r.workerId, r.workerName, r.department, toMinguoDate(r.onboardDate),
       r.expDays, r.annualLeaveEntitled, r.annualLeaveUsed,
       r.annualLeaveRemaining, r.workDays, r.totalLeaveDays
     ]),

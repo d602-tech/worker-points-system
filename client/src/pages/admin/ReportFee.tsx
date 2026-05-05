@@ -6,7 +6,8 @@ import { toChineseAmount } from "@/lib/exportExcel";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
-import { format } from "date-fns";
+import { format, isBefore, isAfter, parseISO } from "date-fns";
+import { isAssistant } from "@/lib/utils";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
 
@@ -31,17 +32,19 @@ function getWorkDaysInMonth(yearMonth: string) {
 }
 
 function getContractDaysInfo(yearMonth: string) {
+  const startLimit = new Date(2026, 3, 22); // 115/04/22
+  const endLimit = new Date(2027, 5, 21);   // 116/06/21
+  
   const [year, month] = yearMonth.split("-").map(Number);
-  const dTotal = new Date(year, month, 0).getDate();
-  let dContract = dTotal;
-  
-  // 動態破月引擎：115年4月與116年6月
-  if (yearMonth === "2026-04") return { ratio: 0.3, dContract: 9, dTotal: 30 }; 
-  if (yearMonth === "2027-06") return { ratio: 0.7, dContract: 21, dTotal: 30 }; 
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const dTotal = monthEnd.getDate();
+  const intersectStart = monthStart > startLimit ? monthStart : startLimit;
+  const intersectEnd = monthEnd < endLimit ? monthEnd : endLimit;
 
-  if (year < 2026 || (year === 2026 && month < 4)) dContract = 0;
-  else if (year > 2027 || (year === 2027 && month > 6)) dContract = 0;
-  
+  if (intersectStart > intersectEnd) return { ratio: 0, dContract: 0, dTotal };
+
+  const dContract = Math.floor((intersectEnd.getTime() - intersectStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   return { ratio: dContract / dTotal, dContract, dTotal };
 }
 
@@ -65,6 +68,16 @@ export default function ReportFee() {
         const { workers, snapshots } = res.data;
         const mapped = (workers || []).map((w: any) => {
           const wId = String(w["人員編號"]);
+          const onboard = w["到職日"] || "";
+          const resign = w["離職日"] || "";
+          
+          // 過濾白名單
+          if (!isAssistant(wId)) return null;
+
+          // 過濾契約區間: 到職日 > 116/06/21 (2027-06-21) 或 離職日 < 115/04/22 (2026-04-22)
+          if (onboard && isAfter(parseISO(onboard), new Date(2027, 5, 21))) return null;
+          if (resign && isBefore(parseISO(resign), new Date(2026, 3, 22))) return null;
+
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
           return {
             id: wId, type: String(w["職務類型"] || ""),
@@ -77,8 +90,8 @@ export default function ReportFee() {
             workDays: parseFloat(snap?.["出勤天數"]) || 0, 
             leaveHours: parseFloat(snap?.["特休時數"]) || 0,
           };
-        });
-        setReportData(mapped);
+        }).filter(Boolean);
+        setReportData(mapped as WorkerData[]);
       }
     } finally { setIsLoading(false); }
   }, [user?.email, selectedMonth]);
@@ -100,6 +113,7 @@ export default function ReportFee() {
       data.penaltyP += (w.p || 0);
       data.actualWorkHoursSum += ((w.workDays || 0) * 8);
     });
+    data.assistantTotal = data.general + data.offshore + data.safety + data.environment;
     return data;
   }, [reportData]);
 
@@ -194,6 +208,14 @@ export default function ReportFee() {
               <td className="border border-black text-center font-mono font-bold text-blue-700">{fixVal.toLocaleString()}</td>
               <td className="border border-black px-2 text-[10px]">比例計給，破月依日曆天折算</td>
             </tr>
+            <tr className="bg-blue-50 font-bold">
+              <td colSpan={3} className="border border-black text-right px-4 text-blue-800">各協助員點數金額合計 (一~四)</td>
+              <td className="border border-black text-center font-mono text-blue-900">
+                {Math.round(stats.assistantTotal * ratio).toLocaleString()}
+              </td>
+              <td className="border border-black"></td>
+            </tr>
+
 
             <tr className="bg-gray-50 font-bold"><td colSpan={5} className="border border-black px-2 py-1">二、乙方管理費用</td></tr>
             <tr>

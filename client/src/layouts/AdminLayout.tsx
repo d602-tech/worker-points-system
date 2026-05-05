@@ -10,7 +10,6 @@ import {
 const TABS = [
   { id: "users",      path: "/admin/users",       icon: Users,       label: "人員管理"     },
   { id: "attendance", path: "/admin/attendance",   icon: CalendarDays,label: "差勤管理"     },
-  { id: "review",     path: "/review",             icon: CheckSquare, label: "審核中心"     },
   { id: "summary",    path: "/reports/summary",    icon: BarChart2,   label: "工作量彙總"   },
   { id: "leave",      path: "/reports/leave",      icon: UserCheck,   label: "出勤暨特休"   },
   { id: "fee",        path: "/reports/fee",        icon: DollarSign,  label: "服務費統計"   },
@@ -101,7 +100,7 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
             
             // billing 角色：工作量彙總、出勤暨特休、服務費統計
             if (user?.role === "billing") {
-              return ["users", "attendance", "review", "summary", "leave", "fee"].includes(t.id);
+              return ["users", "attendance", "summary", "leave", "fee"].includes(t.id);
             }
             
             // deptMgr 角色：差勤管理、審核中心 (績效評核)、工作量彙總

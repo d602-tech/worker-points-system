@@ -7,6 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
+import { isAssistant } from "@/lib/utils";
 
 // ── 資料介面 ──────────────────────────────────────────────────
 interface PointDef {
@@ -84,13 +85,16 @@ export default function ReportSummary() {
       }
 
       if (workersRes.success && Array.isArray(workersRes.data)) {
-        setManagedWorkers(workersRes.data.map(w => ({
-          userId: String(w["人員編號"] || ""),
-          name: String(w["姓名"] || ""),
-          department: String(w["用人部門"] || w["所屬部門"] || ""),
-          area: String(w["服務區域"] || ""),
-          workerType: String(w["職務類型"] || "general"),
-        })));
+        setManagedWorkers(workersRes.data
+          .map(w => ({
+            userId: String(w["人員編號"] || ""),
+            name: String(w["姓名"] || ""),
+            department: String(w["用人部門"] || w["所屬部門"] || ""),
+            area: String(w["服務區域"] || ""),
+            workerType: String(w["職務類型"] || "general"),
+          }))
+          .filter(w => isAssistant(w.userId)) // 白名單過濾
+        );
       }
 
       if (dailyRes.success && Array.isArray(dailyRes.data)) {
@@ -324,11 +328,6 @@ export default function ReportSummary() {
                 <p className="font-bold text-sm">本人簽章</p>
               </div>
               <div className="space-y-10 relative">
-                {isReadOnly && (
-                  <div className="absolute inset-0 flex items-center justify-center -top-8 pointer-events-none">
-                    <span className="text-blue-600/20 font-black text-2xl border-4 border-blue-600/20 rounded-full px-4 py-1 rotate-12">核章通過</span>
-                  </div>
-                )}
                 <div className="border-b border-black pb-1 mx-4"></div>
                 <p className="font-bold text-sm">廠商核章</p>
               </div>

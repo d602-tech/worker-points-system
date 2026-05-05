@@ -7,6 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { differenceInDays, parseISO } from "date-fns";
+import { isAssistant, toMinguoDate } from "@/lib/utils";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
 
@@ -62,10 +63,10 @@ export default function ReportLeave() {
             onboard: String(w["到職日"] || ""), pastExp: parseFloat(w["過往年資天數"]) || 0,
             workDays: parseFloat(snap?.["出勤天數"]) || 0, 
             thisMonthLeaveHours: parseFloat(snap?.["特休時數"]) || 0,
-            totalUsedHours,
-            leaveDetails: details
+            leaveDetails: details,
+            ytdLeaveHours: Number(w["累計至上月已休時數"] || w["ytdLeaveHours"] || 0)
           };
-        });
+        }).filter((w: any) => isAssistant(w.id)); // 白名單過濾
         setReportData(mapped);
       }
     } finally { setIsLoading(false); }
@@ -148,7 +149,7 @@ export default function ReportLeave() {
               <tr key={row.id} className="h-10">
                 <td className="border border-black text-center">{idx + 1}</td>
                 <td className="border border-black text-center font-bold">{row.name}<br /><span className="text-[9px] text-gray-400 font-normal">{row.id}</span></td>
-                <td className="border border-black text-center">{row.onboard || "-"}</td>
+                <td className="border border-black text-center">{toMinguoDate(row.onboard)}</td>
                 <td className="border border-black text-center">{row.tenureYears.toFixed(1)}年</td>
                 <td className="border border-black text-center font-mono">{row.entitledHours}</td>
                 <td className="border border-black text-center font-mono text-amber-700">{row.totalUsedHours}</td>

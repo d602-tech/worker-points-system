@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { isAssistant } from "@/lib/utils";
 
 // ── 狀態碼工具 ───────────────────────────────────────────────
 // 格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠 | 調_MMDD
@@ -181,16 +182,16 @@ export default function AdminAttendance() {
     });
   }, []);
 
-  // 1. 載入人員名單
   useEffect(() => {
     if (!user?.email) return;
     setIsLoading(true);
+
     gasGet<any[]>("getWorkers", { callerEmail: user.email }).then(res => {
       if (res.success && Array.isArray(res.data)) {
         const list = res.data.map(w => ({
           userId: String(w["人員編號"] || ""),
           name: String(w["姓名"] || ""),
-        })).filter(w => w.userId);
+        })).filter(w => w.userId && isAssistant(w.userId)); // 白名單過濾
         setWorkers(list);
         if (list.length > 0 && !selectedWorker) setSelectedWorker(list[0].userId);
       }
