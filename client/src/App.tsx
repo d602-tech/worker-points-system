@@ -16,7 +16,6 @@ import Profile from "./pages/worker/Profile";
 // Admin pages
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminAttendance from "./pages/admin/AdminAttendance";
-import ReviewCenter from "./pages/admin/ReviewCenter";
 import ReportSummary from "./pages/admin/ReportSummary";
 import ReportLeave from "./pages/admin/ReportLeave";
 import ReportFee from "./pages/admin/ReportFee";
@@ -92,13 +91,6 @@ function Router() {
         {() => (
           <AdminLayout tab="attendance">
             <AdminAttendance />
-          </AdminLayout>
-        )}
-      </Route>
-      <Route path="/review">
-        {() => (
-          <AdminLayout tab="review">
-            <ReviewCenter />
           </AdminLayout>
         )}
       </Route>
