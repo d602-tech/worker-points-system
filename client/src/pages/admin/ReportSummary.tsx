@@ -7,7 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format } from "date-fns";
-import { isAssistant } from "@/lib/utils";
+import { isAssistant, isPersonActiveInMonth } from "@/lib/utils";
 
 // ── 資料介面 ──────────────────────────────────────────────────
 interface PointDef {
@@ -92,8 +92,9 @@ export default function ReportSummary() {
             department: String(w["用人部門"] || w["所屬部門"] || ""),
             area: String(w["服務區域"] || ""),
             workerType: String(w["職務類型"] || "general"),
+            onboard: String(w["到職日"] || ""),
           }))
-          .filter(w => isAssistant(w.userId)) // 白名單過濾
+          .filter(w => isAssistant(w.userId) && isPersonActiveInMonth(w.onboard, selectedMonth)) // 白名單 + 入職過濾
         );
       }
 

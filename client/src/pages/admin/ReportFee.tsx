@@ -7,7 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format, isBefore, isAfter, parseISO } from "date-fns";
-import { isAssistant } from "@/lib/utils";
+import { isAssistant, isPersonActiveInMonth } from "@/lib/utils";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
 
@@ -74,9 +74,10 @@ export default function ReportFee() {
           // 過濾白名單
           if (!isAssistant(wId)) return null;
 
-          // 過濾契約區間: 到職日 > 116/06/21 (2027-06-21) 或 離職日 < 115/04/22 (2026-04-22)
+          // 過濾契約區間與入職狀態
           if (onboard && isAfter(parseISO(onboard), new Date(2027, 5, 21))) return null;
           if (resign && isBefore(parseISO(resign), new Date(2026, 3, 22))) return null;
+          if (!isPersonActiveInMonth(onboard, selectedMonth)) return null;
 
           const snap = (snapshots || []).find((s: any) => s["人員編號"] === wId && s["年月"] === selectedMonth);
           return {
@@ -102,7 +103,15 @@ export default function ReportFee() {
   const calendarWorkDays = getWorkDaysInMonth(selectedMonth);
 
   const stats = useMemo(() => {
-    const data = { general: 0, offshore: 0, safety: 0, environment: 0, leaveS: 0, penaltyP: 0, actualWorkHoursSum: 0, totalConfiguredWorkers: reportData.length };
+    const data = { 
+      general: 0, offshore: 0, safety: 0, environment: 0, 
+      leaveS: 0, penaltyP: 0, 
+      actualWorkHoursSum: 0, 
+      totalConfiguredWorkers: reportData.length,
+      assistantTotal: 0,
+      activeWorkerCount: 0,
+      totalLeaveHours: 0
+    };
     reportData.forEach(w => {
       const pts = (w.a || 0) + (w.b || 0) + (w.c || 0) + (w.d || 0);
       if (w.type.includes("一般")) data.general += pts;
@@ -111,13 +120,22 @@ export default function ReportFee() {
       else if (w.type.includes("環保")) data.environment += pts;
       data.leaveS += (w.s || 0); 
       data.penaltyP += (w.p || 0);
-      data.actualWorkHoursSum += ((w.workDays || 0) * 8);
+      
+      if (w.workDays > 0) {
+        data.activeWorkerCount++;
+      }
+      data.totalLeaveHours += (w.leaveHours || 0);
     });
+    
+    // 重新計算實際總時數與出勤率基準
+    const expectedTotalHours = data.activeWorkerCount * calendarWorkDays * 8;
+    data.actualWorkHoursSum = expectedTotalHours - data.totalLeaveHours;
+    
     data.assistantTotal = data.general + data.offshore + data.safety + data.environment;
     return data;
-  }, [reportData]);
+  }, [reportData, calendarWorkDays]);
 
-  const expectedTotalHours = 11 * calendarWorkDays * 8; // 基於 11 人的合約基準
+  const expectedTotalHours = stats.activeWorkerCount * calendarWorkDays * 8;
   const attendRate = expectedTotalHours > 0 ? Math.min(1, stats.actualWorkHoursSum / expectedTotalHours) : 0;
 
   const fixVal = Math.round((1632400 / 14) * (reportData.length / 11) * ratio);
@@ -223,10 +241,10 @@ export default function ReportFee() {
               <td className="border border-black px-2">(一) 職業安全衛生宣導暨教育訓練費用</td>
               <td className="border border-black text-center">20,000</td>
               <td className="border border-black text-center p-0">
-                <input type="number" value={customFees.edu} onChange={e => setCustomFees(f => ({ ...f, edu: Number(e.target.value) }))} className="w-full text-center py-1 bg-transparent no-print hover:bg-blue-50" />
+                <input type="number" step="1000" min="0" value={customFees.edu} onChange={e => setCustomFees(f => ({ ...f, edu: Number(e.target.value) }))} className="w-full text-center py-1 bg-transparent no-print hover:bg-blue-50" />
                 <span className="hidden print:inline">{customFees.edu.toLocaleString()}</span>
               </td>
-              <td className="border border-black px-2 text-[10px]">依實際發生數計給</td>
+              <td className="border border-black px-2 text-[10px]">依實際發生數計給 (步進: 1,000)</td>
             </tr>
             <tr>
               <td className="border border-black text-center">7</td>
@@ -247,10 +265,10 @@ export default function ReportFee() {
               <td className="border border-black px-2">(四) 個人安全防護器具</td>
               <td className="border border-black text-center">32,000</td>
               <td className="border border-black text-center p-0">
-                <input type="number" value={customFees.ppe} onChange={e => setCustomFees(f => ({ ...f, ppe: Number(e.target.value) }))} className="w-full text-center py-1 bg-transparent no-print hover:bg-blue-50" />
+                <input type="number" step="2000" min="0" value={customFees.ppe} onChange={e => setCustomFees(f => ({ ...f, ppe: Number(e.target.value) }))} className="w-full text-center py-1 bg-transparent no-print hover:bg-blue-50" />
                 <span className="hidden print:inline">{customFees.ppe.toLocaleString()}</span>
               </td>
-              <td className="border border-black px-2 text-[10px]">依實際發生數計給</td>
+              <td className="border border-black px-2 text-[10px]">依實際發生數計給 (步進: 2,000)</td>
             </tr>
 
             <tr className="bg-gray-50 font-bold"><td colSpan={5} className="border border-black px-2 py-1">三、特休費用</td></tr>
@@ -307,7 +325,8 @@ export default function ReportFee() {
           <p className="font-bold mb-1 underline">【費用與出勤率計算基準】</p>
           <div className="space-y-1 text-blue-800">
             <p>• <b>破月比例 (日曆天)</b> = {dContract}天 / {dTotal}天 = <b>{ratio.toFixed(2)}</b></p>
-            <p>• <b>出勤率</b> = 實際總時數 {stats.actualWorkHoursSum}h / (11人 × {calendarWorkDays}工作天 × 8h) = <b>{attendRate.toFixed(2)}</b></p>
+            <p>• <b>出勤率</b> = 實際總時數 {Math.round(stats.actualWorkHoursSum)}h / (當月上班人員 {stats.activeWorkerCount}人 × {calendarWorkDays}工作天 × 8h) = <b>{attendRate.toFixed(2)}</b></p>
+            <p>• <b>實際總時數</b> = (上班人員 {stats.activeWorkerCount}人 × {calendarWorkDays}天 × 8h) - 總請假 {stats.totalLeaveHours}h = <b>{Math.round(stats.actualWorkHoursSum)}h</b></p>
             <p>• <b>固定費用</b> = (1,632,400 ÷ 14) × (實際人數 {reportData.length} / 11) × {ratio.toFixed(2)} = <b>{fixVal.toLocaleString()}</b></p>
             <p>• <b>行政管理費</b> = (805,000 ÷ 14) × {ratio.toFixed(2)} × {attendRate.toFixed(2)}(出勤率) = <b>{admVal.toLocaleString()}</b></p>
           </div>

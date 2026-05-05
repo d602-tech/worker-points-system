@@ -59,12 +59,33 @@ export function isAssistant(userId: string | null | undefined): boolean {
 }
 
 /**
+ * 取得當月最後一日的 Date 物件
+ * @param yearMonth 格式 "yyyy-MM"
+ */
+export function getLastDayOfMonth(yearMonth: string): Date {
+  const [y, m] = yearMonth.split("-").map(Number);
+  // next month day 0 = last day of current month
+  return new Date(y, m, 0, 23, 59, 59);
+}
+
+/**
+ * 判斷人員在特定月份是否已到職 (以該月最後一日為準)
+ */
+export function isPersonActiveInMonth(onboardDate: string | null | undefined, yearMonth: string): boolean {
+  if (!onboardDate) return false;
+  const onboard = parseISO(onboardDate);
+  if (!isValid(onboard)) return false;
+  const lastDay = getLastDayOfMonth(yearMonth);
+  return onboard <= lastDay;
+}
+
+/**
  * 轉換為民國年格式: 115/04/22
  */
 export function toMinguoDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
+  const date = parseISO(dateStr);
+  if (!isValid(date)) return dateStr;
   const year = date.getFullYear() - 1911;
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

@@ -66,7 +66,7 @@ export default function ReportLeave() {
             leaveDetails: details,
             ytdLeaveHours: Number(w["累計至上月已休時數"] || w["ytdLeaveHours"] || 0)
           };
-        }).filter((w: any) => isAssistant(w.id)); // 白名單過濾
+        }).filter((w: any) => isAssistant(w.id) && isPersonActiveInMonth(w.onboard, selectedMonth)); // 白名單 + 入職過濾
         setReportData(mapped);
       }
     } finally { setIsLoading(false); }
