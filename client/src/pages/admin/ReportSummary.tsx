@@ -165,8 +165,8 @@ export default function ReportSummary() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 font-bold h-10">
-                      <td colSpan={3} className="border border-black text-right px-4">本月小計 (A1/A2/B1/B2/C/D)：</td>
-                      <td className="border border-black text-center font-mono text-blue-700">
+                      <td colSpan={3} className="border border-black text-right px-4 text-xs">本月個人總點數合計 (A+B+C+D)：</td>
+                      <td className="border border-black text-center font-mono text-blue-700 text-sm font-black">
                         {Math.round(worker.reg).toLocaleString()}
                       </td>
                       <td className="border border-black"></td>
@@ -175,10 +175,10 @@ export default function ReportSummary() {
                 </table>
 
                 <div className="mt-6 grid grid-cols-4 gap-2 text-center text-[10px]">
-                  <div className="border border-black p-2"><p>A 類小計</p><p className="font-bold">{worker.catA.toLocaleString()}</p></div>
-                  <div className="border border-black p-2"><p>B 類小計</p><p className="font-bold">{worker.catB.toLocaleString()}</p></div>
-                  <div className="border border-black p-2"><p>C 類小計</p><p className="font-bold">{worker.catC.toLocaleString()}</p></div>
-                  <div className="border border-black p-2"><p>D 類小計</p><p className="font-bold">{worker.catD.toLocaleString()}</p></div>
+                  <div className="border border-black p-2"><p>A 類點數</p><p className="font-bold text-sm">{worker.catA.toLocaleString()}</p></div>
+                  <div className="border border-black p-2"><p>B 類點數</p><p className="font-bold text-sm">{worker.catB.toLocaleString()}</p></div>
+                  <div className="border border-black p-2"><p>C 類點數</p><p className="font-bold text-sm">{worker.catC.toLocaleString()}</p></div>
+                  <div className="border border-black p-2"><p>D 類點數</p><p className="font-bold text-sm">{worker.catD.toLocaleString()}</p></div>
                 </div>
 
                 <div className="mt-12 grid grid-cols-2 gap-20 text-center">

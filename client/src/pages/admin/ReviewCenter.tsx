@@ -141,15 +141,24 @@ export default function ReviewCenter() {
         const worker = allWorkers.find(w => w.userId === uid);
         if (!worker) continue;
 
-        // 呼叫 API 儲存。這裡我們直接傳遞 points 和 perfLevel。
-        // 後端 reviewItem 會處理對應的 C 類項目。
+        // 重新計算點數 (包含破月)
+        const perfRules: Record<string, any> = {
+          general: { "優": 10000, "佳": 8000, "平": 5000 },
+          offshore: { "優": 12000, "佳": 10000, "平": 7000 },
+          safety: { "優": 10000, "佳": 8000, "平": 5000 },
+          environment: { "優": 8000, "佳": 6000, "平": 3000 },
+        };
+        const rules = perfRules[worker.workerType] || perfRules.general;
+        const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
+        const finalPoints = Math.round((rules[assessment.level] || 5000) * proration);
+
         await gasPost("reviewMonthlyReport", {
           callerEmail: user?.email,
           workerId: uid,
           yearMonth: currentYearMonth,
           action2: "admin_save",
           perfLevel: assessment.level,
-          points: assessment.points // 這裡傳遞的是「臨時點數」
+          points: finalPoints
         });
       }
       toast.success("績效評核已同步至 Google Sheet");
@@ -211,29 +220,35 @@ export default function ReviewCenter() {
             <thead>
               <tr className="bg-slate-50 border-b border-border/30 text-muted-foreground">
                 <th className="px-6 py-4 text-left font-bold">協助員姓名 / 工號</th>
-                <th className="px-6 py-4 text-center font-bold">臨時交辦點數</th>
                 <th className="px-6 py-4 text-center font-bold">績效評核 (優/佳/平)</th>
-                <th className="px-6 py-4 text-right font-bold">預估總額</th>
+                <th className="px-6 py-4 text-right font-bold">本月點數額度</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
               {deptMgrView?.map(w => {
-                // 每個職務類型對應的點數規則 (簡單對應)
+                // 點數規則：優=10000, 佳=8000, 平=5000 (一般型)
                 const perfRules: Record<string, any> = {
-                  general: { "優": 5000, "佳": 3000, "平": 2000 },
-                  offshore: { "優": 7200, "佳": 5200, "平": 4200 },
-                  safety: { "優": 5000, "佳": 3000, "平": 2000 },
-                  environment: { "優": 2000, "佳": 1000, "平": 500 },
+                  general: { "優": 10000, "佳": 8000, "平": 5000 },
+                  offshore: { "優": 12000, "佳": 10000, "平": 7000 },
+                  safety: { "優": 10000, "佳": 8000, "平": 5000 },
+                  environment: { "優": 8000, "佳": 6000, "平": 3000 },
                 };
                 const rules = perfRules[w.workerType] || perfRules.general;
+
+                // 破月比例計算
+                const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
+                const hasProration = proration < 1.0;
 
                 const existingItem = w.items[0];
                 const wId = w.userId;
                 
                 const currentData = perfAssess[wId] || { 
                   level: existingItem?.perfLevel || "平", 
-                  points: existingItem?.points || 0 
+                  points: 0 
                 };
+
+                const basePoints = rules[currentData.level] || 0;
+                const finalPoints = Math.round(basePoints * proration);
 
                 return (
                   <tr key={wId} className="hover:bg-blue-50/30 transition-colors group">
@@ -249,35 +264,30 @@ export default function ReviewCenter() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <input 
-                        type="number"
-                        value={currentData.points}
-                        onChange={(e) => setPerfAssess(prev => ({ ...prev, [wId]: { ...currentData, points: parseInt(e.target.value) || 0 } }))}
-                        className="w-28 h-10 text-center border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-base"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-6 py-5 text-center">
                       <div className="flex gap-2 justify-center">
                         {["優", "佳", "平"].map(l => (
                           <button key={l} 
                             onClick={() => setPerfAssess(prev => ({ ...prev, [wId]: { ...currentData, level: l } }))}
                             className={cn(
-                              "px-4 py-2 rounded-xl border text-sm font-bold transition-all",
+                              "px-6 py-2.5 rounded-xl border-2 text-sm font-bold transition-all",
                               currentData.level === l 
-                                ? "bg-blue-600 text-white border-blue-600 shadow-md transform scale-105" 
-                                : "bg-white text-muted-foreground border-border hover:border-blue-200"
+                                ? "bg-orange-600 text-white border-orange-600 shadow-md transform scale-110" 
+                                : "bg-white text-muted-foreground border-border hover:border-orange-200"
                             )}>
                             {l}
                           </button>
                         ))}
                       </div>
-                      <div className="text-[10px] text-muted-foreground mt-1.5 font-medium">
-                        對應點數：{(rules[currentData.level] || 0).toLocaleString()}
-                      </div>
                     </td>
-                    <td className="px-6 py-5 text-right font-mono font-bold text-blue-700 text-xl">
-                      {(currentData.points + (rules[currentData.level] || 0)).toLocaleString()}
+                    <td className="px-6 py-5 text-right">
+                      <div className="font-mono font-bold text-blue-700 text-2xl">
+                        {finalPoints.toLocaleString()}
+                      </div>
+                      {hasProration && (
+                        <div className="text-[10px] text-amber-600 font-bold mt-1 animate-pulse">
+                          (已依破月比例 ×{proration} 折算)
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

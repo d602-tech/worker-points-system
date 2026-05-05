@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, X, Printer } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ChevronLeft, ChevronRight, X, Printer, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -8,14 +8,14 @@ import { zhTW } from "date-fns/locale";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 // ── 狀態碼工具 ───────────────────────────────────────────────
-// 格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠
-type StatusType = "／" | "特" | "病" | "事" | "婚" | "喪" | "公" | "代_" | "曠";
+// 格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠 | 調_MMDD
+type StatusType = "／" | "特" | "病" | "事" | "婚" | "喪" | "公" | "代_" | "曠" | "調";
 
-const STATUS_TYPES: StatusType[] = ["／", "特", "病", "事", "婚", "喪", "公", "代_", "曠"];
+const STATUS_TYPES: StatusType[] = ["／", "特", "病", "事", "婚", "喪", "公", "代_", "曠", "調"];
 
 const STATUS_TYPE_LABELS: Record<StatusType, string> = {
   "／": "出勤", "特": "特休", "病": "病假", "事": "事假",
-  "婚": "婚假", "喪": "喪假", "公": "公假", "代_": "代理", "曠": "曠職",
+  "婚": "婚假", "喪": "喪假", "公": "公假", "代_": "代理", "曠": "曠職", "調": "調班",
 };
 
 const STATUS_COLORS: Record<StatusType, string> = {
@@ -28,12 +28,14 @@ const STATUS_COLORS: Record<StatusType, string> = {
   "公": "text-cyan-700 bg-cyan-50 border-cyan-200",
   "代_": "text-purple-700 bg-purple-50 border-purple-200",
   "曠": "text-red-700 bg-red-50 border-red-200",
+  "調": "text-white bg-orange-500 border-orange-600 font-bold",
 };
 
 function getStatusType(status: string): StatusType {
   if (status === "／") return "／";
   if (status === "曠") return "曠";
   if (status.startsWith("代_")) return "代_";
+  if (status.startsWith("調")) return "調";
   for (const t of ["特", "病", "事", "婚", "喪", "公"] as const) {
     if (status.startsWith(t)) return t;
   }
@@ -49,10 +51,15 @@ function getStatusProxy(status: string): string {
   return status.startsWith("代_") ? status.slice(2) : "";
 }
 
-function buildStatus(type: StatusType, hours: number, proxy: string): string {
+function getStatusSwapDate(status: string): string {
+  return status.startsWith("調") ? status.slice(1).replace("_", "") : "";
+}
+
+function buildStatus(type: StatusType, hours: number, proxy: string, swapDate: string): string {
   if (type === "／") return "／";
   if (type === "曠") return "曠";
   if (type === "代_") return `代_${proxy}`;
+  if (type === "調") return `調_${swapDate.replace("/", "")}`;
   return `${type}${hours}`;
 }
 
@@ -61,7 +68,7 @@ function statusColorClass(status: string): string {
 }
 
 function isWork(status: string): boolean {
-  return status === "／" || status.startsWith("代_");
+  return status === "／" || status.startsWith("代_") || status.startsWith("調");
 }
 
 // ── 資料模型 ──────────────────────────────────────────────────
@@ -83,31 +90,36 @@ interface Worker {
 // ── 編輯 Dialog 狀態 ──────────────────────────────────────────
 interface EditState {
   date: string;
-  amType: StatusType; amHours: number; amProxy: string;
-  pmType: StatusType; pmHours: number; pmProxy: string;
+  amType: StatusType; amHours: number; amProxy: string; amSwapDate: string;
+  pmType: StatusType; pmHours: number; pmProxy: string; pmSwapDate: string;
 }
 
 function recordToEditState(date: string, rec?: AttRecord): EditState {
-  if (!rec) return { date, amType: "／", amHours: 4, amProxy: "", pmType: "／", pmHours: 4, pmProxy: "" };
+  if (!rec) return { 
+    date, 
+    amType: "／", amHours: 4, amProxy: "", amSwapDate: "",
+    pmType: "／", pmHours: 4, pmProxy: "", pmSwapDate: "" 
+  };
   return {
     date,
-    amType: getStatusType(rec.amStatus), amHours: getStatusHours(rec.amStatus), amProxy: getStatusProxy(rec.amStatus),
-    pmType: getStatusType(rec.pmStatus), pmHours: getStatusHours(rec.pmStatus), pmProxy: getStatusProxy(rec.pmStatus),
+    amType: getStatusType(rec.amStatus), amHours: getStatusHours(rec.amStatus), amProxy: getStatusProxy(rec.amStatus), amSwapDate: getStatusSwapDate(rec.amStatus),
+    pmType: getStatusType(rec.pmStatus), pmHours: getStatusHours(rec.pmStatus), pmProxy: getStatusProxy(rec.pmStatus), pmSwapDate: getStatusSwapDate(rec.pmStatus),
   };
 }
 
 // ── 半段選擇器 ───────────────────────────────────────────────
 function HalfEditor({
-  label, type, hours, proxy,
-  onType, onHours, onProxy,
+  label, type, hours, proxy, swapDate,
+  onType, onHours, onProxy, onSwapDate,
 }: {
   label: string;
-  type: StatusType; hours: number; proxy: string;
+  type: StatusType; hours: number; proxy: string; swapDate: string;
   onType: (t: StatusType) => void;
   onHours: (h: number) => void;
   onProxy: (p: string) => void;
+  onSwapDate: (d: string) => void;
 }) {
-  const needsHours = type !== "／" && type !== "曠" && type !== "代_";
+  const needsHours = type !== "／" && type !== "曠" && type !== "代_" && type !== "調";
   return (
     <div className="mb-4">
       <div className="text-xs font-semibold text-muted-foreground mb-2">{label}</div>
@@ -136,6 +148,11 @@ function HalfEditor({
       {type === "代_" && (
         <input type="text" placeholder="輸入代理人姓名..."
           value={proxy} onChange={e => onProxy(e.target.value)}
+          className="w-full text-sm border border-border rounded-lg px-3 py-1.5 mt-1 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      )}
+      {type === "調" && (
+        <input type="text" placeholder="輸入對調日期 (例如 05/12)..."
+          value={swapDate} onChange={e => onSwapDate(e.target.value)}
           className="w-full text-sm border border-border rounded-lg px-3 py-1.5 mt-1 focus:outline-none focus:ring-2 focus:ring-blue-300" />
       )}
     </div>
@@ -224,11 +241,11 @@ export default function AdminAttendance() {
 
   const saveRecord = async () => {
     if (!editState || !user?.email) return;
-    const amStatus = buildStatus(editState.amType, editState.amHours, editState.amProxy);
-    const pmStatus = buildStatus(editState.pmType, editState.pmHours, editState.pmProxy);
+    const amStatus = buildStatus(editState.amType, editState.amHours, editState.amProxy, editState.amSwapDate);
+    const pmStatus = buildStatus(editState.pmType, editState.pmHours, editState.pmProxy, editState.pmSwapDate);
     
     // 計算工時時數
-    const getHrs = (type: StatusType, hrs: number) => (type === "／" || type === "代_") ? 4 : 0;
+    const getHrs = (type: StatusType, hrs: number) => (type === "／" || type === "代_" || type === "調") ? 4 : 0;
     const leaveHrs = (type: StatusType, hrs: number) => (type === "特") ? hrs : 0;
     
     const workHours = getHrs(editState.amType, editState.amHours) + getHrs(editState.pmType, editState.pmHours);
@@ -261,6 +278,10 @@ export default function AdminAttendance() {
   const workerRecords = Object.entries(records)
     .filter(([k]) => k.includes(`_${selectedWorker}`) && k.startsWith(format(currentMonth, "yyyy-MM")))
     .map(([, v]) => v);
+
+  const swapRecords = useMemo(() => {
+    return workerRecords.filter(r => r.amStatus.startsWith("調") || r.pmStatus.startsWith("調"));
+  }, [workerRecords]);
 
   const fullDays = workerRecords.filter(r => isWork(r.amStatus) && isWork(r.pmStatus)).length;
   const halfDays = workerRecords.filter(r => isWork(r.amStatus) !== isWork(r.pmStatus)).length;
@@ -435,12 +456,18 @@ export default function AdminAttendance() {
                   
                   {rec ? (
                     <div className="flex flex-col gap-0.5 w-full">
-                      <span className={cn("text-[9px] font-medium px-0.5 py-0.5 rounded text-center border truncate", statusColorClass(rec.amStatus))}>
-                        上{rec.amStatus === "／" ? "勤" : rec.amStatus.length > 3 ? rec.amStatus.slice(0, 3) : rec.amStatus}
-                      </span>
-                      <span className={cn("text-[9px] font-medium px-0.5 py-0.5 rounded text-center border truncate", statusColorClass(rec.pmStatus))}>
-                        下{rec.pmStatus === "／" ? "勤" : rec.pmStatus.length > 3 ? rec.pmStatus.slice(0, 3) : rec.pmStatus}
-                      </span>
+                      {[rec.amStatus, rec.pmStatus].map((s, i) => {
+                        const type = getStatusType(s);
+                        const isSwap = type === "調";
+                        const swapDate = getStatusSwapDate(s);
+                        const label = s === "／" ? "勤" : (isSwap ? "調" : (s.length > 3 ? s.slice(0, 3) : s));
+                        return (
+                          <span key={i} className={cn("text-[9px] font-medium px-0.5 py-0.5 rounded text-center border truncate", statusColorClass(s))}>
+                            {i === 0 ? "上" : "下"}{label}
+                            {isSwap && swapDate && <span className="ml-0.5 opacity-80">←→{swapDate.slice(0, 2)}/{swapDate.slice(2)}</span>}
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     !isNonWork && (
@@ -457,9 +484,42 @@ export default function AdminAttendance() {
           </div>
         </div>
         <div className="px-4 py-3 border-t border-border/30 text-xs text-muted-foreground print:hidden">
-          狀態碼：／＝出勤 · 特N＝特休N小時 · 病N／事N等＝請假 · 代_姓名＝代理出勤 · 曠＝曠職
+          狀態碼：／＝出勤 · 特N＝特休N小時 · 病N／事N等＝請假 · 代_姓名＝代理出勤 · 曠＝曠職 · 調_MMDD＝調班
         </div>
       </div>
+
+      {/* 調班紀錄清單 */}
+      {swapRecords.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/30 bg-orange-50/50">
+            <h2 className="text-sm font-bold text-orange-800">本月調班紀錄</h2>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/30 text-muted-foreground bg-slate-50/30 text-left">
+                <th className="px-4 py-3 font-medium">姓名</th>
+                <th className="px-4 py-3 font-medium">原班日</th>
+                <th className="px-4 py-3 font-medium text-center">對調日</th>
+                <th className="px-4 py-3 font-medium">申請原因 / 備註</th>
+              </tr>
+            </thead>
+            <tbody>
+              {swapRecords.map((r, idx) => {
+                const swapDate = getStatusSwapDate(r.amStatus.startsWith("調") ? r.amStatus : r.pmStatus);
+                const displaySwapDate = swapDate ? `${swapDate.slice(0, 2)}/${swapDate.slice(2)}` : "—";
+                return (
+                  <tr key={idx} className="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium">{workerName}</td>
+                    <td className="px-4 py-3">{format(parseISO(r.date), "M/d")}</td>
+                    <td className="px-4 py-3 text-center font-bold text-orange-600">{displaySwapDate}</td>
+                    <td className="px-4 py-3 text-muted-foreground">經主管核對調班</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Edit Dialog */}
       {editState && (
@@ -477,17 +537,19 @@ export default function AdminAttendance() {
 
               <HalfEditor
                 label="上午狀態"
-                type={editState.amType} hours={editState.amHours} proxy={editState.amProxy}
+                type={editState.amType} hours={editState.amHours} proxy={editState.amProxy} swapDate={editState.amSwapDate}
                 onType={t => setEditState(s => s ? { ...s, amType: t } : s)}
                 onHours={h => setEditState(s => s ? { ...s, amHours: h } : s)}
                 onProxy={p => setEditState(s => s ? { ...s, amProxy: p } : s)}
+                onSwapDate={d => setEditState(s => s ? { ...s, amSwapDate: d } : s)}
               />
               <HalfEditor
                 label="下午狀態"
-                type={editState.pmType} hours={editState.pmHours} proxy={editState.pmProxy}
+                type={editState.pmType} hours={editState.pmHours} proxy={editState.pmProxy} swapDate={editState.pmSwapDate}
                 onType={t => setEditState(s => s ? { ...s, pmType: t } : s)}
                 onHours={h => setEditState(s => s ? { ...s, pmHours: h } : s)}
                 onProxy={p => setEditState(s => s ? { ...s, pmProxy: p } : s)}
+                onSwapDate={d => setEditState(s => s ? { ...s, pmSwapDate: d } : s)}
               />
             </div>
             <div className="p-6 flex justify-end gap-3 bg-slate-50 border-t border-border/50 rounded-b-2xl">
