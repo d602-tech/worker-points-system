@@ -69,6 +69,8 @@ export default function ReviewCenter() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectDialog, setRejectDialog] = useState<{ id: string; workerId: string; yearMonth: string; action: "退回修改" | "廠商退回"; reason: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
+  const [confirmDialog, setConfirmDialog] = useState<boolean>(false);
   const [allWorkers, setAllWorkers] = useState<{ userId: string; name: string; workerType: string }[]>([]);
   const [pointDefs, setPointDefs] = useState<any[]>([]);
 
