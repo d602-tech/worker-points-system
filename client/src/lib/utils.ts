@@ -53,8 +53,8 @@ export const CONTRACT_END = "2027-06-21";
  */
 export function isAssistant(userId: string | null | undefined): boolean {
   if (!userId) return false;
-  // 匹配 USR01 ~ USR11
-  const match = userId.toUpperCase().match(/^USR(0[1-9]|1[0-1])$/);
+  // 匹配 USR001 ~ USR011
+  const match = userId.toUpperCase().match(/^USR(00[1-9]|01[0-1])$/);
   return !!match;
 }
 
