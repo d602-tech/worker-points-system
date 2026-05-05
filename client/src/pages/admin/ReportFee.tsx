@@ -7,14 +7,10 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { format, isBefore, isAfter, parseISO } from "date-fns";
-import { isAssistant, isPersonActiveInMonth } from "@/lib/utils";
+import { isAssistant, isPersonActiveInMonth, HOLIDAYS } from "@/lib/utils";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
 
-const HOLIDAYS = [
-  "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-27", "2026-04-03", "2026-04-06", "2026-05-01", "2026-06-19", "2026-09-25", "2026-10-09",
-  "2027-01-01", "2027-02-05", "2027-02-08", "2027-02-09", "2027-02-10", "2027-04-05", "2027-06-09", "2027-09-15", "2027-10-10"
-];
 
 function getWorkDaysInMonth(yearMonth: string) {
   const [year, month] = yearMonth.split("-").map(Number);
@@ -114,10 +110,10 @@ export default function ReportFee() {
     };
     reportData.forEach(w => {
       const pts = (w.a || 0) + (w.b || 0) + (w.c || 0) + (w.d || 0);
-      if (w.type.includes("一般")) data.general += pts;
-      else if (w.type.includes("離島")) data.offshore += pts;
-      else if (w.type.includes("職安")) data.safety += pts;
-      else if (w.type.includes("環保")) data.environment += pts;
+      if (w.type.includes("一般") || w.type === "general") data.general += pts;
+      else if (w.type.includes("離島") || w.type === "offshore") data.offshore += pts;
+      else if (w.type.includes("職安") || w.type === "safety") data.safety += pts;
+      else if (w.type.includes("環保") || w.type === "environment") data.environment += pts;
       data.leaveS += (w.s || 0); 
       data.penaltyP += (w.p || 0);
       
@@ -194,30 +190,30 @@ export default function ReportFee() {
             <tr>
               <td className="border border-black text-center">1</td>
               <td className="border border-black px-2">(一) 一般協助員</td>
-              <td className="border border-black text-center">5,096,000</td>
-              <td className="border border-black text-center font-mono">{Math.round(stats.general * ratio).toLocaleString()}</td>
-              <td className="border border-black px-2 text-[10px]">依實際核付點數計給</td>
+              <td className="border border-black text-center">1,215,200</td>
+              <td className="border border-black text-center font-bold text-blue-700">{stats.general.toLocaleString()}</td>
+              <td className="border border-black px-2 text-[10px]">自動加總一般身分人員金額</td>
             </tr>
             <tr>
               <td className="border border-black text-center">2</td>
               <td className="border border-black px-2">(二) 離島地區協助員</td>
-              <td className="border border-black text-center">1,960,000</td>
-              <td className="border border-black text-center font-mono">{Math.round(stats.offshore * ratio).toLocaleString()}</td>
-              <td className="border border-black px-2 text-[10px]">依實際核付點數計給</td>
+              <td className="border border-black text-center">243,600</td>
+              <td className="border border-black text-center font-bold text-blue-700">{stats.offshore.toLocaleString()}</td>
+              <td className="border border-black px-2 text-[10px]">自動加總離島身分人員金額</td>
             </tr>
             <tr>
               <td className="border border-black text-center">3</td>
               <td className="border border-black px-2">(三) 職安管理協助員</td>
-              <td className="border border-black text-center">672,000</td>
-              <td className="border border-black text-center font-mono">{Math.round(stats.safety * ratio).toLocaleString()}</td>
-              <td className="border border-black px-2 text-[10px]">依實際核付點數計給</td>
+              <td className="border border-black text-center">112,000</td>
+              <td className="border border-black text-center font-bold text-blue-700">{stats.safety.toLocaleString()}</td>
+              <td className="border border-black px-2 text-[10px]">自動加總職安身分人員金額</td>
             </tr>
             <tr>
               <td className="border border-black text-center">4</td>
               <td className="border border-black px-2">(四) 環保管理協助員</td>
-              <td className="border border-black text-center">602,000</td>
-              <td className="border border-black text-center font-mono">{Math.round(stats.environment * ratio).toLocaleString()}</td>
-              <td className="border border-black px-2 text-[10px]">依實際核付點數計給</td>
+              <td className="border border-black text-center">61,600</td>
+              <td className="border border-black text-center font-bold text-blue-700">{stats.environment.toLocaleString()}</td>
+              <td className="border border-black px-2 text-[10px]">自動加總環保身分人員金額</td>
             </tr>
             <tr>
               <td className="border border-black text-center">5</td>

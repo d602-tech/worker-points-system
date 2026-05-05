@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
-import { isAssistant } from "@/lib/utils";
+import { isAssistant, CONTRACT_START, CONTRACT_END, HOLIDAYS } from "@/lib/utils";
 
 // ── 狀態碼工具 ───────────────────────────────────────────────
 // 格式：／ | 特N | 病N | 事N | 婚N | 喪N | 公N | 代_姓名 | 曠 | 調_MMDD
@@ -308,15 +308,21 @@ export default function AdminAttendance() {
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
             <Printer className="w-4 h-4" />列印
           </Button>
-          <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted transition-colors">
+          <button 
+            disabled={!isAfter(startOfMonth(currentMonth), parseISO(CONTRACT_START))}
+            onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             <ChevronLeft className="w-4 h-4 text-muted-foreground" />
           </button>
           <span className="text-sm font-semibold text-foreground min-w-[80px] text-center">
             {format(currentMonth, "yyyy年M月", { locale: zhTW })}
           </span>
-          <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted transition-colors">
+          <button 
+            disabled={!isBefore(endOfMonth(currentMonth), parseISO(CONTRACT_END))}
+            onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           </button>
         </div>
@@ -475,13 +481,14 @@ export default function AdminAttendance() {
                       })}
                     </div>
                   ) : (
-                    !isNonWork && (
-                      <div className="flex flex-col gap-0.5 w-full mt-auto">
-                        <span className="text-[9px] font-medium px-0.5 py-0.5 rounded text-center border border-emerald-100 bg-emerald-50/30 text-emerald-600/50">
-                          (預設上班)
-                        </span>
-                      </div>
-                    )
+                    <div className="flex flex-col gap-0.5 w-full mt-auto">
+                      <span className={cn(
+                        "text-[9px] font-medium px-0.5 py-0.5 rounded text-center border",
+                        isNonWork ? "border-slate-200 bg-slate-100 text-slate-400" : "border-emerald-100 bg-emerald-50 text-emerald-600"
+                      )}>
+                        {isNonWork ? "休" : "勤"}
+                      </span>
+                    </div>
                   )}
                 </button>
               );

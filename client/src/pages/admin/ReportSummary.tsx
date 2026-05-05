@@ -6,8 +6,8 @@ import { exportWorkSummaryReport } from "@/lib/exportExcel";
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
-import { format } from "date-fns";
-import { isAssistant, isPersonActiveInMonth } from "@/lib/utils";
+import { format, parseISO } from "date-fns";
+import { isAssistant, isPersonActiveInMonth, getProration, CONTRACT_START, CONTRACT_END } from "@/lib/utils";
 
 // ── 資料介面 ──────────────────────────────────────────────────
 interface PointDef {
@@ -95,6 +95,7 @@ export default function ReportSummary() {
             onboard: String(w["到職日"] || ""),
           }))
           .filter(w => isAssistant(w.userId) && isPersonActiveInMonth(w.onboard, selectedMonth)) // 白名單 + 入職過濾
+          .sort((a, b) => a.userId.localeCompare(b.userId)) // 依人員編號排序
         );
       }
 
@@ -158,7 +159,10 @@ export default function ReportSummary() {
         };
       }).sort((a, b) => a.category.localeCompare(b.category));
 
-      // 3. 計算各類別合計
+      // 3. 計算該員該月比例
+      const workerProration = getProration(worker.onboard, selectedMonth);
+
+      // 4. 計算各類別合計
       const catA = rows.filter(r => r.category.startsWith("A")).reduce((s, r) => s + r.subtotal, 0);
       const catB = rows.filter(r => r.category.startsWith("B")).reduce((s, r) => s + r.subtotal, 0);
       const catC = rows.filter(r => r.category === "C").reduce((s, r) => s + r.subtotal, 0);
@@ -172,13 +176,12 @@ export default function ReportSummary() {
         worker,
         rows,
         catA, catB, catC, catD, catS, catP,
-        totalWork
+        totalWork,
+        proration: workerProration
       };
     });
-  }, [managedWorkers, pointDefs, dailyPoints, monthlyPoints]);
+  }, [managedWorkers, pointDefs, dailyPoints, monthlyPoints, selectedMonth]);
 
-  const proration = selectedMonth === "2026-04" ? 0.3 : (selectedMonth === "2027-06" ? 0.7 : 1.0);
-  const prorationText = proration < 1.0 ? ` (已套用破月折算比例: ${proration})` : "";
 
   const handleExport = () => {
     const exportData = reports.map(r => ({
@@ -314,10 +317,10 @@ export default function ReportSummary() {
 
             {/* 頁尾加註 */}
             <div className="mt-4 text-[10px] text-muted-foreground space-y-1">
-              <p>* 本報表點數資料直接串接 Google Sheets 原始紀錄進行即時組裝。{prorationText}</p>
-              {proration < 1.0 && (
+              <p>* 本報表點數資料直接串接 Google Sheets 原始紀錄進行即時組裝。</p>
+              {report.proration < 1.0 && (
                 <p className="text-red-500 font-bold">
-                  ! 註：本月份執行天數較少，績效與月固定點數已依規定按比例 ({proration}) 折算。
+                  ! 註：本月份執行天數較少，績效與月固定點數已依規定按比例 ({report.proration.toFixed(2)}) 折算。
                 </p>
               )}
             </div>

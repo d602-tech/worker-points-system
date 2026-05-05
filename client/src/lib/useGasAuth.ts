@@ -31,6 +31,7 @@ export interface GasUser {
   area: string;        // 服務區域
   workerType: string;  // 職務類型（English enum: general/offshore/safety/environment）
   role: "admin" | "deptMgr" | "billing" | "worker";  // 角色（English enum）
+  onboardDate: string; // 入職日期
 }
 
 export function getStoredUser(): GasUser | null {
@@ -104,6 +105,7 @@ async function fetchProfile(email: string): Promise<{ user: GasUser | null; erro
     area: String(d["服務區域"] || ""),
     workerType: String(d["職務類型"] || "general"),
     role: (String(d["角色"] || "worker")) as GasUser["role"],
+    onboardDate: String(d["到職日"] || ""),
   };
   return { user, error: null };
 }
@@ -184,6 +186,7 @@ export function useGasAuth() {
         area: String(d["服務區域"] || ""),
         workerType: String(d["職務類型"] || "general"),
         role: (String(d["角色"] || "worker")) as GasUser["role"],
+        onboardDate: String(d["到職日"] || ""),
       };
       storeUser(user);
       setState({ user, loading: false, error: null, isAuthenticated: true });

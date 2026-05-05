@@ -6,12 +6,13 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { format, addMonths, subMonths } from "date-fns";
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, isAfter, parseISO } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
 import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasPost, gasGet, getDriveFolderId } from "@/lib/gasApi";
 import { POINTS_CONFIG_SEED } from "../../../../shared/domain";
+import { getProration, CONTRACT_START, CONTRACT_END } from "@/lib/utils";
 
 // ============================================================
 // 工具函式
@@ -114,8 +115,17 @@ export default function MonthlyReport() {
     if (touchStartX.current === null) return;
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(deltaX) > 70) {
-      if (deltaX > 0) setCurrentMonth(m => subMonths(m, 1));
-      else setCurrentMonth(m => addMonths(m, 1));
+      if (deltaX > 0) {
+        const prevMonth = subMonths(currentMonth, 1);
+        if (isAfter(endOfMonth(prevMonth), parseISO(CONTRACT_START))) {
+          setCurrentMonth(prevMonth);
+        }
+      } else {
+        const nextMonth = addMonths(currentMonth, 1);
+        if (isBefore(startOfMonth(nextMonth), parseISO(CONTRACT_END))) {
+          setCurrentMonth(nextMonth);
+        }
+      }
     }
     touchStartX.current = null;
   };
@@ -177,17 +187,22 @@ export default function MonthlyReport() {
     }).finally(() => setIsLoading(false));
   }, [user?.id, currentMonth, monthlyItemDefs]);
 
-  // ──────────────────────────────
-  // 計算
-  // ──────────────────────────────
+  // ── 破月比例計算 ──
+  const proration = useMemo(() => {
+    return getProration(user?.onboardDate, format(currentMonth, "yyyy-MM"));
+  }, [user?.onboardDate, currentMonth]);
+
   const monthlyRegTotal = items.reduce((sum, item) => {
     if (item.category === "C") return sum;
-    return sum + item.pointsPerUnit * item.quantity;
+    // B1 項目套用破月比例
+    return sum + Math.round(item.pointsPerUnit * item.quantity * proration);
   }, 0);
 
   const perfTotal = items.reduce((sum, item) => {
     if (item.category === "C" && item.perfLevel) {
-      return sum + (PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0);
+      const basePoints = PERF_LEVELS.find(l => l.value === item.perfLevel)?.points || 0;
+      // C 項目套用破月比例
+      return sum + Math.round(basePoints * proration);
     }
     return sum;
   }, 0);
@@ -478,8 +493,9 @@ export default function MonthlyReport() {
       <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-border shadow-elegant">
         <div className="flex items-center justify-between px-4 py-4">
           <button
+            disabled={!isAfter(endOfMonth(subMonths(currentMonth, 1)), parseISO(CONTRACT_START))}
             onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all"
+            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all disabled:opacity-30"
           >
             <ChevronLeft className="w-6 h-6 text-muted-foreground" />
           </button>
@@ -492,8 +508,9 @@ export default function MonthlyReport() {
             </div>
           </div>
           <button
+            disabled={!isBefore(startOfMonth(addMonths(currentMonth, 1)), parseISO(CONTRACT_END))}
             onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all"
+            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted active:scale-90 transition-all disabled:opacity-30"
           >
             <ChevronRight className="w-6 h-6 text-muted-foreground" />
           </button>
@@ -502,9 +519,11 @@ export default function MonthlyReport() {
           <div className="bg-slate-900 rounded-[28px] px-6 py-5 flex items-center justify-between shadow-elegant-lg relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16 blur-2xl" />
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">
-                本月總計 (已含每月與每日點數)
-              </span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest leading-none">
+                  本月總計 (已計入破月比例: {proration.toFixed(2)})
+                </span>
+              </div>
               <span className="text-3xl font-black text-white">
                 {totalPoints.toLocaleString()}
                 <span className="text-sm font-bold ml-1 text-slate-400">點</span>

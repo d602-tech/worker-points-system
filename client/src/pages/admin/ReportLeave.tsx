@@ -7,7 +7,7 @@ import { useGasAuthContext } from "@/lib/useGasAuth";
 import { gasGet } from "@/lib/gasApi";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { differenceInDays, parseISO } from "date-fns";
-import { isAssistant, toMinguoDate } from "@/lib/utils";
+import { isAssistant, isPersonActiveInMonth, toMinguoDate } from "@/lib/utils";
 
 const MONTHS_LIST = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06"];
 
@@ -66,7 +66,8 @@ export default function ReportLeave() {
             leaveDetails: details,
             ytdLeaveHours: Number(w["累計至上月已休時數"] || w["ytdLeaveHours"] || 0)
           };
-        }).filter((w: any) => isAssistant(w.id) && isPersonActiveInMonth(w.onboard, selectedMonth)); // 白名單 + 入職過濾
+        }).filter((w: any) => isAssistant(w.id) && isPersonActiveInMonth(w.onboard, selectedMonth)) // 白名單 + 入職過濾
+          .sort((a: any, b: any) => a.id.localeCompare(b.id)); // 依人員編號排序
         setReportData(mapped);
       }
     } finally { setIsLoading(false); }
