@@ -71,6 +71,7 @@ export default function ReviewCenter() {
   const [isLoading, setIsLoading] = useState(false);
   const [perfAssess, setPerfAssess] = useState<Record<string, { level: string; points: number }>>({});
   const [confirmDialog, setConfirmDialog] = useState<boolean>(false);
+  const [allWorkers, setAllWorkers] = useState<{ userId: string; name: string; workerType: string }[]>([]);
 
   const currentYearMonth = format(new Date(), "yyyy-MM");
 
@@ -78,6 +79,7 @@ export default function ReviewCenter() {
     if (!user?.email) return;
     setIsLoading(true);
     try {
+      // 1. 載入待審核清單
       const res = await gasGet<any[]>("getReviewList", {
         callerEmail: user.email,
         yearMonth: currentYearMonth,
@@ -85,8 +87,20 @@ export default function ReviewCenter() {
       if (res.success && Array.isArray(res.data)) {
         setItems(res.data.map(mapRowToReviewItem));
       }
+
+      // 2. 如果是主管，載入所有部門成員以進行填報
+      if (user.role === "deptMgr") {
+        const wRes = await gasGet<any[]>("getWorkers", { callerEmail: user.email });
+        if (wRes.success && Array.isArray(wRes.data)) {
+          setAllWorkers(wRes.data.map(w => ({
+            userId: String(w["人員編號"] || ""),
+            name: String(w["姓名"] || ""),
+            workerType: String(w["職務類型"] || "general")
+          })));
+        }
+      }
     } finally { setIsLoading(false); }
-  }, [user?.email, currentYearMonth]);
+  }, [user?.email, user?.role, currentYearMonth]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -118,46 +132,30 @@ export default function ReviewCenter() {
   };
 
   const handleBulkSubmit = async () => {
-    const targetIds = Object.keys(perfAssess);
-    if (targetIds.length === 0) return;
+    const userIds = Object.keys(perfAssess);
+    if (userIds.length === 0) return;
     setIsLoading(true);
     try {
-      for (const id of targetIds) {
-        const assessment = perfAssess[id];
-        // 找出對應的人員與項目資訊
-        // 如果 ID 是虛擬產生的 (TEMP_C1 / PERF_C2)，我們需要從 w.workerId 反推
-        let workerId = "";
-        let itemId = "";
-        
-        if (id.startsWith("TEMP_C1_")) {
-          workerId = id.replace("TEMP_C1_", "");
-          itemId = "GEN-C1-01"; // 預設臨時交辦 ID
-        } else if (id.startsWith("PERF_C2_")) {
-          workerId = id.replace("PERF_C2_", "");
-          itemId = "GEN-C1-02"; // 預設績效評核 ID
-        } else {
-          const item = items.find(i => i.id === id);
-          if (item) {
-            workerId = item.workerId;
-            itemId = item.id;
-          }
-        }
+      for (const uid of userIds) {
+        const assessment = perfAssess[uid];
+        const worker = allWorkers.find(w => w.userId === uid);
+        if (!worker) continue;
 
-        if (workerId) {
-          await gasPost("reviewMonthlyReport", {
-            callerEmail: user?.email,
-            workerId: workerId,
-            yearMonth: currentYearMonth,
-            action2: "admin_save",
-            itemId: itemId, // 傳遞特定的項目 ID
-            perfLevel: assessment.level,
-            points: assessment.points
-          });
-        }
+        // 呼叫 API 儲存。這裡我們直接傳遞 points 和 perfLevel。
+        // 後端 reviewItem 會處理對應的 C 類項目。
+        await gasPost("reviewMonthlyReport", {
+          callerEmail: user?.email,
+          workerId: uid,
+          yearMonth: currentYearMonth,
+          action2: "admin_save",
+          perfLevel: assessment.level,
+          points: assessment.points // 這裡傳遞的是「臨時點數」
+        });
       }
-      toast.success("績效評核與臨時交辦已儲存");
+      toast.success("績效評核已同步至 Google Sheet");
       loadItems();
       setConfirmDialog(false);
+      setPerfAssess({}); // 清空暫存
     } catch (err) {
       toast.error("儲存過程發生錯誤");
     } finally {
@@ -165,16 +163,14 @@ export default function ReviewCenter() {
     }
   };
 
-  // 分組邏輯：如果是經理，直接按人列出 C 類項目
+  // 分組邏輯：如果是主管，直接列出所有部門成員
   const deptMgrView = useMemo(() => {
     if (user?.role !== "deptMgr") return null;
-    const workers = Array.from(new Set(items.map(i => i.workerId)));
-    return workers.map(wid => {
-      const wItems = items.filter(i => i.workerId === wid && i.category === "C");
-      const name = wItems[0]?.workerName || wid;
-      return { workerId: wid, name, items: wItems };
+    return allWorkers.map(w => {
+      const wItems = items.filter(i => i.workerId === w.userId && i.category === "C");
+      return { ...w, items: wItems };
     });
-  }, [user?.role, items]);
+  }, [user?.role, allWorkers, items]);
 
   return (
     <div className="space-y-6 relative min-h-[400px]">
@@ -192,8 +188,8 @@ export default function ReviewCenter() {
         
         <div className="flex gap-2">
           {user?.role === "deptMgr" && (
-            <Button className="bg-indigo-600 hover:bg-indigo-700 gap-1.5 shadow-lg" onClick={() => setConfirmDialog(true)}>
-              <Send className="w-4 h-4" /> 批量儲存評核
+            <Button className="bg-blue-700 hover:bg-blue-800 gap-1.5 shadow-lg" onClick={() => setConfirmDialog(true)}>
+              <Send className="w-4 h-4" /> 上傳績效評核
             </Button>
           )}
           <div className="flex gap-1.5 no-print">
@@ -209,73 +205,79 @@ export default function ReviewCenter() {
       </div>
 
       {user?.role === "deptMgr" ? (
-        /* 部門經理直接填報視圖 */
+        /* 部門主管直接填報視圖 */
         <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-border/30 text-muted-foreground">
-                <th className="px-6 py-4 text-left font-bold">人員姓名 / 工號</th>
+                <th className="px-6 py-4 text-left font-bold">協助員姓名 / 工號</th>
                 <th className="px-6 py-4 text-center font-bold">臨時交辦點數</th>
-                <th className="px-6 py-4 text-center font-bold">績效評核點數</th>
-                <th className="px-6 py-4 text-right font-bold">本月 C 類總計</th>
+                <th className="px-6 py-4 text-center font-bold">績效評核 (優/佳/平)</th>
+                <th className="px-6 py-4 text-right font-bold">預估總額</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
               {deptMgrView?.map(w => {
-                // 假設 C1-01 是臨時交辦，C1-02 是績效評核
-                const itemC1 = w.items.find(i => i.id.includes('C1-01')) || w.items[0]; 
-                const itemC2 = w.items.find(i => i.id.includes('C1-02')) || w.items[1];
-                
-                const c1Id = itemC1?.id || `TEMP_C1_${w.workerId}`;
-                const c2Id = itemC2?.id || `PERF_C2_${w.workerId}`;
+                // 每個職務類型對應的點數規則 (簡單對應)
+                const perfRules: Record<string, any> = {
+                  general: { "優": 5000, "佳": 3000, "平": 2000 },
+                  offshore: { "優": 7200, "佳": 5200, "平": 4200 },
+                  safety: { "優": 5000, "佳": 3000, "平": 2000 },
+                  environment: { "優": 2000, "佳": 1000, "平": 500 },
+                };
+                const rules = perfRules[w.workerType] || perfRules.general;
 
-                const currentC1 = perfAssess[c1Id]?.points ?? itemC1?.points ?? 0;
-                const currentC2 = perfAssess[c2Id]?.points ?? itemC2?.points ?? 0;
+                const existingItem = w.items[0];
+                const wId = w.userId;
                 
+                const currentData = perfAssess[wId] || { 
+                  level: existingItem?.perfLevel || "平", 
+                  points: existingItem?.points || 0 
+                };
+
                 return (
-                  <tr key={w.workerId} className="hover:bg-blue-50/30 transition-colors group">
+                  <tr key={wId} className="hover:bg-blue-50/30 transition-colors group">
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 font-bold border border-indigo-100">
+                        <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-bold border border-blue-100">
                           {w.name[0]}
                         </div>
                         <div>
                           <div className="font-bold text-foreground">{w.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono">{w.workerId}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{wId}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-5 text-center">
                       <input 
                         type="number"
-                        value={currentC1}
-                        onChange={(e) => setPerfAssess(prev => ({ ...prev, [c1Id]: { level: '核定', points: parseInt(e.target.value) || 0 } }))}
-                        className="w-24 h-9 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono"
-                        placeholder="點數"
+                        value={currentData.points}
+                        onChange={(e) => setPerfAssess(prev => ({ ...prev, [wId]: { ...currentData, points: parseInt(e.target.value) || 0 } }))}
+                        className="w-28 h-10 text-center border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-base"
+                        placeholder="0"
                       />
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <div className="flex flex-col gap-2 items-center">
-                        <input 
-                          type="number"
-                          value={currentC2}
-                          onChange={(e) => setPerfAssess(prev => ({ ...prev, [c2Id]: { level: '核定', points: parseInt(e.target.value) || 0 } }))}
-                          className="w-24 h-9 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono"
-                          placeholder="點數"
-                        />
-                        <div className="flex gap-1">
-                          {['優','佳','平'].map(l => (
-                            <button key={l} 
-                              onClick={() => setPerfAssess(prev => ({ ...prev, [c2Id]: { level: l, points: l==='優'?5000:l==='佳'?3000:2000 } }))}
-                              className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-blue-100 rounded border">
-                              {l}
-                            </button>
-                          ))}
-                        </div>
+                      <div className="flex gap-2 justify-center">
+                        {["優", "佳", "平"].map(l => (
+                          <button key={l} 
+                            onClick={() => setPerfAssess(prev => ({ ...prev, [wId]: { ...currentData, level: l } }))}
+                            className={cn(
+                              "px-4 py-2 rounded-xl border text-sm font-bold transition-all",
+                              currentData.level === l 
+                                ? "bg-blue-600 text-white border-blue-600 shadow-md transform scale-105" 
+                                : "bg-white text-muted-foreground border-border hover:border-blue-200"
+                            )}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1.5 font-medium">
+                        對應點數：{(rules[currentData.level] || 0).toLocaleString()}
                       </div>
                     </td>
-                    <td className="px-6 py-5 text-right font-mono font-bold text-blue-700 text-lg">
-                      {(currentC1 + currentC2).toLocaleString()} pt
+                    <td className="px-6 py-5 text-right font-mono font-bold text-blue-700 text-xl">
+                      {(currentData.points + (rules[currentData.level] || 0)).toLocaleString()}
                     </td>
                   </tr>
                 );
@@ -283,7 +285,7 @@ export default function ReviewCenter() {
             </tbody>
           </table>
           {deptMgrView?.length === 0 && (
-            <div className="p-12 text-center text-muted-foreground">查與可評核之人員資料</div>
+            <div className="p-16 text-center text-muted-foreground">目前查無協助員名單</div>
           )}
         </div>
       ) : (

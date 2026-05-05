@@ -104,9 +104,9 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
               return ["review", "summary", "leave", "fee"].includes(t.id);
             }
             
-            // deptMgr 角色：人員管理、差勤管理、審核中心 (績效評核)、工作量彙總
+            // deptMgr 角色：差勤管理、審核中心 (績效評核)、工作量彙總
             if (user?.role === "deptMgr") {
-              return ["users", "attendance", "review", "summary"].includes(t.id);
+              return ["attendance", "review", "summary"].includes(t.id);
             }
 
             return true;

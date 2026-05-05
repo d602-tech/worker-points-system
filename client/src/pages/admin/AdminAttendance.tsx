@@ -150,7 +150,19 @@ export default function AdminAttendance() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [records, setRecords] = useState<Record<string, AttRecord>>({});
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [filterType, setFilterType] = useState<StatusType | "all">("all");
+  const [holidays, setHolidays] = useState<string[]>([]);
+
+  // 0. 載入系統設定 (取得國定假日)
+  useEffect(() => {
+    gasGet<any>("getConfig").then(res => {
+      if (res.success && res.data?.holidays2026) {
+        setHolidays(res.data.holidays2026.split(",").filter(Boolean));
+      }
+    });
+  }, []);
 
   // 1. 載入人員名單
   useEffect(() => {
@@ -237,11 +249,12 @@ export default function AdminAttendance() {
     });
 
     if (res.success) {
-      toast.success(`${editState.date} 差勤已更新`);
+      toast.success("差勤紀錄已更新");
       loadRecords();
       setEditState(null);
+      setShowConfirmDialog(false);
     } else {
-      toast.error("儲存失敗: " + res.error);
+      toast.error(`更新失敗: ${res.error}`);
     }
   };
 
@@ -284,25 +297,49 @@ export default function AdminAttendance() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-4 items-center print:hidden bg-slate-50/50 p-4 rounded-2xl border border-border/50">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider ml-1">選擇協助員</span>
+          <div className="flex gap-2 flex-wrap">
+            {workers.map(w => (
+              <button key={w.userId} onClick={() => setSelectedWorker(w.userId)}
+                className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+                  selectedWorker === w.userId
+                    ? "bg-blue-700 text-white border-blue-700 shadow-sm"
+                    : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
+                {w.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-10 w-px bg-border mx-2" />
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider ml-1">假別篩選</span>
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={() => setFilterType("all")}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+                filterType === "all" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-muted-foreground border-border")}>
+              全部
+            </button>
+            {STATUS_TYPES.map(t => (
+              <button key={t} onClick={() => setFilterType(t)}
+                className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
+                  filterType === t ? cn("border-transparent text-white", STATUS_COLORS[t].split(' ')[0].replace('text-', 'bg-')) : "bg-white text-muted-foreground border-border")}>
+                {STATUS_TYPE_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="hidden print:block text-center mb-4">
         <h2 className="text-lg font-bold">115年度協助員點數管理系統</h2>
         <h3 className="text-base">差勤統計表 — {format(currentMonth, "yyyy年M月", { locale: zhTW })} — {workerName}</h3>
       </div>
 
       <div className="flex flex-wrap gap-3 items-start print:hidden">
-        <div className="flex gap-2 flex-wrap">
-          {workers.map(w => (
-            <button key={w.userId} onClick={() => setSelectedWorker(w.userId)}
-              className={cn("px-3 py-1.5 text-sm font-medium rounded-lg border transition-all",
-                selectedWorker === w.userId
-                  ? "bg-blue-700 text-white border-blue-700"
-                  : "bg-white text-muted-foreground border-border hover:border-muted-foreground")}>
-              {w.name}
-            </button>
-          ))}
-          {workers.length === 0 && <span className="text-xs text-muted-foreground py-2">載入人員中...</span>}
-        </div>
-        
         <div className="flex gap-3 ml-auto">
           {[
             { label: "全天出勤", value: fullDays, color: "text-emerald-700 bg-emerald-50" },
@@ -320,14 +357,16 @@ export default function AdminAttendance() {
       {user?.role === "deptMgr" && (
         <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden mb-6">
           <div className="px-4 py-3 border-b border-border/30 bg-gray-50/50">
-            <h2 className="text-sm font-bold text-foreground">部門差勤彙總</h2>
+            <h2 className="text-sm font-bold text-foreground">部門差勤彙總 (特休統計)</h2>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/30 text-muted-foreground">
+              <tr className="border-b border-border/30 text-muted-foreground bg-slate-50/30">
                 <th className="px-4 py-3 text-left font-medium">姓名</th>
-                <th className="px-4 py-3 text-center font-medium">當月特休 (時)</th>
-                <th className="px-4 py-3 text-center font-medium">年度累計 (天)</th>
+                <th className="px-4 py-3 text-center font-medium">特休總額(天)</th>
+                <th className="px-4 py-3 text-center font-medium">本月已休(天)</th>
+                <th className="px-4 py-3 text-center font-medium">累計已休(天)</th>
+                <th className="px-4 py-3 text-center font-medium">剩餘特休(天)</th>
               </tr>
             </thead>
             <tbody>
@@ -337,11 +376,18 @@ export default function AdminAttendance() {
                   const h = (s: string) => getStatusType(s) === "特" ? getStatusHours(s) : 0;
                   return sum + h(r.amStatus) + h(r.pmStatus);
                 }, 0);
+                const totalDays = parseFloat((w as any).totalLeaveDays) || 7.0;
+                const usedYtdDays = parseFloat((w as any).ytdLeaveDays) || 0.0;
+                const usedMonthDays = mHours / 8;
+                const remaining = totalDays - usedYtdDays;
+
                 return (
                   <tr key={w.userId} className="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{w.name}</td>
-                    <td className="px-4 py-3 text-center font-mono text-blue-700">{mHours}h</td>
-                    <td className="px-4 py-3 text-center font-mono font-bold text-indigo-700">{(w as any).ytdLeaveDays || "0.0"} 天</td>
+                    <td className="px-4 py-3 text-center font-mono">{totalDays.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-center font-mono text-blue-600">{usedMonthDays.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-center font-mono text-amber-700">{usedYtdDays.toFixed(1)}</td>
+                    <td className="px-4 py-3 text-center font-mono font-bold text-indigo-700">{remaining.toFixed(1)}</td>
                   </tr>
                 );
               })}
@@ -363,17 +409,30 @@ export default function AdminAttendance() {
             {days.map(day => {
               const dateStr = format(day, "yyyy-MM-dd");
               const rec = records[`${dateStr}_${selectedWorker}`];
+              const isHoliday = holidays.includes(dateStr);
               const isWeekend = getDay(day) === 0 || getDay(day) === 6;
+              const isNonWork = isWeekend || isHoliday;
               const isTodayDate = isToday(day);
+
+              const matchesFilter = filterType === "all" || 
+                (rec && (getStatusType(rec.amStatus) === filterType || getStatusType(rec.pmStatus) === filterType));
+              
+              const opacityClass = matchesFilter ? "opacity-100" : "opacity-20 grayscale";
+
               return (
                 <button key={dateStr} onClick={() => openEdit(dateStr)}
                   className={cn(
-                    "min-h-[64px] rounded-xl border p-1 flex flex-col items-center gap-0.5 transition-all hover:ring-2 hover:ring-blue-300",
-                    isWeekend ? "bg-slate-50 border-slate-100 text-slate-400" : "bg-muted/20 border-border/30 hover:bg-muted/40"
+                    "min-h-[72px] rounded-xl border p-1.5 flex flex-col items-center gap-0.5 transition-all hover:ring-2 hover:ring-blue-300",
+                    isNonWork ? "bg-slate-50 border-slate-100 text-slate-400" : "bg-white border-border/60 hover:bg-blue-50/30",
+                    opacityClass
                   )}>
-                  <span className={cn("text-xs font-semibold leading-none mb-0.5", isTodayDate && "text-blue-700")}>
-                    {format(day, "d")}
-                  </span>
+                  <div className="w-full flex justify-between items-start mb-0.5">
+                    <span className={cn("text-[10px] font-bold px-1 rounded-sm", isTodayDate ? "bg-blue-600 text-white" : "")}>
+                      {format(day, "d")}
+                    </span>
+                    {isHoliday && <span className="text-[8px] text-red-400 font-bold">假</span>}
+                  </div>
+                  
                   {rec ? (
                     <div className="flex flex-col gap-0.5 w-full">
                       <span className={cn("text-[9px] font-medium px-0.5 py-0.5 rounded text-center border truncate", statusColorClass(rec.amStatus))}>
@@ -383,7 +442,15 @@ export default function AdminAttendance() {
                         下{rec.pmStatus === "／" ? "勤" : rec.pmStatus.length > 3 ? rec.pmStatus.slice(0, 3) : rec.pmStatus}
                       </span>
                     </div>
-                  ) : null}
+                  ) : (
+                    !isNonWork && (
+                      <div className="flex flex-col gap-0.5 w-full mt-auto">
+                        <span className="text-[9px] font-medium px-0.5 py-0.5 rounded text-center border border-emerald-100 bg-emerald-50/30 text-emerald-600/50">
+                          (預設上班)
+                        </span>
+                      </div>
+                    )
+                  )}
                 </button>
               );
             })}
@@ -394,66 +461,59 @@ export default function AdminAttendance() {
         </div>
       </div>
 
-      {/* Print-only table（列印時替代月曆格式，顯示每日差勤清單） */}
-      <div className="hidden print:block mt-4">
-        <table className="w-full report-table text-sm">
-          <thead>
-            <tr>
-              {["日期", "星期", "上午狀態", "下午狀態"].map(h => (
-                <th key={h} className="px-3 py-2 text-center text-xs font-bold">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {days.filter(day => getDay(day) !== 0 && getDay(day) !== 6).map(day => {
-              const dateStr = format(day, "yyyy-MM-dd");
-              const rec = records[`${dateStr}_${selectedWorker}`];
-              return (
-                <tr key={dateStr}>
-                  <td className="px-3 py-1.5 text-center">{format(day, "M/d")}</td>
-                  <td className="px-3 py-1.5 text-center">
-                    {["日", "一", "二", "三", "四", "五", "六"][getDay(day)]}
-                  </td>
-                  <td className="px-3 py-1.5 text-center">{rec?.amStatus || "—"}</td>
-                  <td className="px-3 py-1.5 text-center">{rec?.pmStatus || "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
       {/* Edit Dialog */}
       {editState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold text-foreground">
-                編輯差勤 — {workerName} {editState.date}
-              </h3>
-              <button onClick={() => setEditState(null)} className="p-1 rounded-lg hover:bg-muted">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-foreground">
+                  編輯差勤 — {workerName} {editState.date}
+                </h3>
+                <button onClick={() => setEditState(null)} className="p-1 rounded-lg hover:bg-muted">
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+
+              <HalfEditor
+                label="上午狀態"
+                type={editState.amType} hours={editState.amHours} proxy={editState.amProxy}
+                onType={t => setEditState(s => s ? { ...s, amType: t } : s)}
+                onHours={h => setEditState(s => s ? { ...s, amHours: h } : s)}
+                onProxy={p => setEditState(s => s ? { ...s, amProxy: p } : s)}
+              />
+              <HalfEditor
+                label="下午狀態"
+                type={editState.pmType} hours={editState.pmHours} proxy={editState.pmProxy}
+                onType={t => setEditState(s => s ? { ...s, pmType: t } : s)}
+                onHours={h => setEditState(s => s ? { ...s, pmHours: h } : s)}
+                onProxy={p => setEditState(s => s ? { ...s, pmProxy: p } : s)}
+              />
             </div>
+            <div className="p-6 flex justify-end gap-3 bg-slate-50 border-t border-border/50 rounded-b-2xl">
+              <Button variant="outline" onClick={() => setEditState(null)}>取消</Button>
+              <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setShowConfirmDialog(true)}>儲存變更</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <HalfEditor
-              label="上午狀態"
-              type={editState.amType} hours={editState.amHours} proxy={editState.amProxy}
-              onType={t => setEditState(s => s ? { ...s, amType: t } : s)}
-              onHours={h => setEditState(s => s ? { ...s, amHours: h } : s)}
-              onProxy={p => setEditState(s => s ? { ...s, amProxy: p } : s)}
-            />
-            <HalfEditor
-              label="下午狀態"
-              type={editState.pmType} hours={editState.pmHours} proxy={editState.pmProxy}
-              onType={t => setEditState(s => s ? { ...s, pmType: t } : s)}
-              onHours={h => setEditState(s => s ? { ...s, pmHours: h } : s)}
-              onProxy={p => setEditState(s => s ? { ...s, pmProxy: p } : s)}
-            />
-
-            <div className="flex gap-3 mt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setEditState(null)}>取消</Button>
-              <Button className="flex-1 bg-blue-700 hover:bg-blue-800" onClick={saveRecord}>儲存</Button>
+      {/* 差勤儲存確認對話框 */}
+      {showConfirmDialog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform transition-all animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-50 rounded-full text-amber-600">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">確認修改差勤？</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6">
+              您即將修改 <span className="font-bold text-foreground">{editState?.date}</span> 的出勤狀態。此變更將即時同步至系統後端。
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowConfirmDialog(false)}>返回</Button>
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={saveRecord}>確定儲存</Button>
             </div>
           </div>
         </div>
