@@ -101,7 +101,7 @@ export default function AdminLayout({ children, tab }: AdminLayoutProps) {
             
             // billing 角色：工作量彙總、出勤暨特休、服務費統計
             if (user?.role === "billing") {
-              return ["review", "summary", "leave", "fee"].includes(t.id);
+              return ["users", "attendance", "review", "summary", "leave", "fee"].includes(t.id);
             }
             
             // deptMgr 角色：差勤管理、審核中心 (績效評核)、工作量彙總

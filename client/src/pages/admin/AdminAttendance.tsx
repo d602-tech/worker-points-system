@@ -235,12 +235,13 @@ export default function AdminAttendance() {
   const startDow = getDay(monthStart);
 
   const openEdit = (dateStr: string) => {
+    if (user?.role === "billing") return;
     const key = `${dateStr}_${selectedWorker}`;
     setEditState(recordToEditState(dateStr, records[key]));
   };
 
   const saveRecord = async () => {
-    if (!editState || !user?.email) return;
+    if (!editState || !user?.email || user?.role === "billing") return;
     const amStatus = buildStatus(editState.amType, editState.amHours, editState.amProxy, editState.amSwapDate);
     const pmStatus = buildStatus(editState.pmType, editState.pmHours, editState.pmProxy, editState.pmSwapDate);
     
@@ -298,7 +299,9 @@ export default function AdminAttendance() {
       <div className="flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-foreground">差勤管理</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">點擊日期格子可編輯上午／下午差勤狀態</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {user?.role === "billing" ? "檢視全員差勤統計 (唯讀)" : "點擊日期格子可編輯上午／下午差勤狀態"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
@@ -443,8 +446,9 @@ export default function AdminAttendance() {
               return (
                 <button key={dateStr} onClick={() => openEdit(dateStr)}
                   className={cn(
-                    "min-h-[72px] rounded-xl border p-1.5 flex flex-col items-center gap-0.5 transition-all hover:ring-2 hover:ring-blue-300",
-                    isNonWork ? "bg-slate-50 border-slate-100 text-slate-400" : "bg-white border-border/60 hover:bg-blue-50/30",
+                    "min-h-[72px] rounded-xl border p-1.5 flex flex-col items-center gap-0.5 transition-all",
+                    user?.role !== "billing" && "hover:ring-2 hover:ring-blue-300 hover:bg-blue-50/30",
+                    isNonWork ? "bg-slate-50 border-slate-100 text-slate-400" : "bg-white border-border/60",
                     opacityClass
                   )}>
                   <div className="w-full flex justify-between items-start mb-0.5">

@@ -73,6 +73,8 @@ export default function ReportLeave() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const isReadOnly = user?.role === "billing";
+
   const tableData = useMemo(() => {
     const today = new Date();
     return reportData.map(w => {
@@ -83,7 +85,9 @@ export default function ReportLeave() {
       const tenureYears = tenureDays / 365;
       const entitledDays = calculateAnnualLeave(tenureYears);
       const entitledHours = entitledDays * 8;
-      return { ...w, tenureYears, entitledHours, remainingHours: entitledHours - w.totalUsedHours };
+      // B (截至上月已休) + C (本月請休) = 總已休
+      const totalUsedHours = (w as any).ytdLeaveHours || w.totalUsedHours;
+      return { ...w, tenureYears, entitledHours, totalUsedHours, remainingHours: entitledHours - totalUsedHours };
     });
   }, [reportData]);
 
@@ -92,18 +96,24 @@ export default function ReportLeave() {
       <LoadingOverlay isLoading={isLoading} />
       
       <div className="flex items-center justify-between no-print">
-        <div className="flex gap-2">
-          {MONTHS_LIST.map(m => (
-            <button key={m} onClick={() => setSelectedMonth(m)}
-              className={cn("px-3 py-1.5 text-xs font-medium rounded-lg border transition-all",
-                selectedMonth === m ? "bg-blue-700 text-white border-blue-700 shadow-sm" : "bg-white text-muted-foreground border-border hover:bg-muted")}>
-              {m}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg">
+            {MONTHS_LIST.map(m => (
+              <button key={m} onClick={() => setSelectedMonth(m)}
+                className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                  selectedMonth === m ? "bg-white text-blue-700 shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                {m}
+              </button>
+            ))}
+          </div>
+          {isReadOnly && <span className="text-xs text-muted-foreground italic">(計價人員唯讀模式)</span>}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 bg-slate-800 text-white hover:bg-slate-700 hover:text-white">
-            <Printer className="w-4 h-4" />列印
+            <Printer className="w-4 h-4" />列印報表
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => exportLeaveStatReport(tableData, selectedMonth)} className="gap-1.5">
+            <Download className="w-4 h-4" />匯出 Excel
           </Button>
         </div>
       </div>
@@ -126,10 +136,10 @@ export default function ReportLeave() {
               <th className="border border-black w-20">到職日期</th>
               <th className="border border-black w-20">年資<br />(含併計)</th>
               <th className="border border-black w-20">應有特休<br />(小時)</th>
-              <th className="border border-black w-20">年度已休<br />(小時)</th>
+              <th className="border border-black w-20">累計已休 (B)<br />(小時)</th>
               <th className="border border-black w-20">剩餘時數<br />(小時)</th>
               <th className="border border-black w-20">本月出勤<br />(天數)</th>
-              <th className="border border-black w-20">本月請休<br />(小時)</th>
+              <th className="border border-black w-20">本月請休 (C)<br />(小時)</th>
               <th className="border border-black">出勤/請假日期詳列</th>
             </tr>
           </thead>

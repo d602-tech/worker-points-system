@@ -41,6 +41,7 @@ interface Worker {
   status: WorkerStatus;
   pastExpDays: number;
   pastExpDetail?: string;
+  ytdLeaveHours?: number; // 累計至上月已休時數 (供 tab4 使用)
 }
 
 // ============================================================
@@ -106,6 +107,7 @@ function mapSheetRowToWorker(row: Record<string, unknown>): Worker {
     status,
     pastExpDays: Number(row["過往年資天數"] || 0),
     pastExpDetail: String(row["過往年資明細"] || ""),
+    ytdLeaveHours: Number(row["累計至上月已休時數"] || row["ytdLeaveHours"] || 0),
   };
 }
 
@@ -205,6 +207,7 @@ interface WorkerFormState {
   onboardDate: string;
   status: WorkerStatus;
   expPeriods: ExpPeriod[];
+  ytdLeaveHours: number;
 }
 
 function WorkerModal({
@@ -238,11 +241,13 @@ function WorkerModal({
         onboardDate: worker.onboardDate,
         status: worker.status,
         expPeriods: periods,
+        ytdLeaveHours: worker.ytdLeaveHours || 0,
       };
     }
     return {
       name: "", email: "", department: "", area: "",
       workerType: "", onboardDate: "", status: "在職", expPeriods: [],
+      ytdLeaveHours: 0,
     };
   });
 
@@ -352,6 +357,7 @@ function WorkerModal({
           isActive: form.status === "在職",
           pastExpDays: totalExpDays,
           pastExpDetail,
+          ytdLeaveHours: form.ytdLeaveHours,
         },
       });
 
@@ -482,6 +488,14 @@ function WorkerModal({
                 <option value="停職">停職</option>
                 <option value="離職">離職</option>
               </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>累計至上月已休時數 (B)</Label>
+              <Input type="number" value={form.ytdLeaveHours}
+                onChange={e => setForm(f => ({ ...f, ytdLeaveHours: Number(e.target.value) }))}
+                placeholder="例如 8" className="h-9" />
+              <p className="text-[10px] text-muted-foreground italic">用於特休報表「截至上月已休」欄位</p>
             </div>
           </div>
 

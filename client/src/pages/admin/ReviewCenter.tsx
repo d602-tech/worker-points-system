@@ -207,6 +207,8 @@ export default function ReviewCenter() {
   const filtered = filterStatus === "all" ? items : items.filter(i => i.status === filterStatus);
   const pendingCount = items.filter(i => i.status === "submitted" || i.status === "dept_approved").length;
 
+  const isReadOnly = user?.role === "billing";
+
   return (
     <div className="space-y-6 relative min-h-[400px]">
       <LoadingOverlay isLoading={isLoading} />
@@ -217,7 +219,7 @@ export default function ReviewCenter() {
             {user?.role === "deptMgr" ? "績效評核 (部門管理)" : "審核中心"}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {user?.role === "deptMgr" ? `本月待評核人員：${deptMgrView?.length || 0} 位` : `待處理 ${pendingCount} 項`}
+            {user?.role === "deptMgr" ? `本月待評核人員：${deptMgrView?.length || 0} 位` : (isReadOnly ? "檢視全員工作報表 (唯讀)" : `待處理 ${pendingCount} 項`)}
           </p>
         </div>
         
@@ -230,7 +232,7 @@ export default function ReviewCenter() {
         </div>
       </div>
 
-      {user?.role === "deptMgr" ? (
+      {user?.role === "deptMgr" || isReadOnly ? (
         <div className="bg-white rounded-2xl shadow-elegant border border-border/50 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -241,7 +243,7 @@ export default function ReviewCenter() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
-              {deptMgrView?.map(w => {
+              {(user?.role === "deptMgr" ? deptMgrView : allWorkers.map(w => ({ ...w, items: items.filter(i => i.workerId === w.userId && i.category === "C") })))?.map(w => {
                 const rules = perfRulesMap[w.workerType] || perfRulesMap.general;
                 const proration = currentYearMonth === "2026-04" ? 0.3 : (currentYearMonth === "2027-06" ? 0.7 : 1.0);
                 const hasProration = proration < 1.0;
@@ -272,12 +274,14 @@ export default function ReviewCenter() {
                       <div className="flex gap-2 justify-center">
                         {["優", "佳", "平"].map(l => (
                           <button key={l} 
+                            disabled={isReadOnly}
                             onClick={() => setPerfAssess(prev => ({ ...prev, [wId]: { level: l, points: rules[l] } }))}
                             className={cn(
                               "px-6 py-2.5 rounded-xl border-2 text-sm font-bold transition-all",
                               currentData.level === l 
                                 ? "bg-orange-600 text-white border-orange-600 shadow-md transform scale-110" 
-                                : "bg-white text-muted-foreground border-border hover:border-orange-200"
+                                : "bg-white text-muted-foreground border-border hover:border-orange-200",
+                              isReadOnly && "cursor-default opacity-80"
                             )}>
                             {l}
                           </button>
@@ -309,7 +313,7 @@ export default function ReviewCenter() {
           {filtered.map(item => {
             const isExpanded = expandedId === item.id;
             const cfg = STATUS_CONFIG[item.status];
-            const actions = getAvailableActions(item.status);
+            const actions = isReadOnly ? [] : getAvailableActions(item.status);
             return (
               <div key={item.id} className="bg-white rounded-2xl shadow-elegant border overflow-hidden border-border/50">
                 <div className="p-4 flex items-start gap-3">

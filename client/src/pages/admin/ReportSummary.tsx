@@ -188,6 +188,8 @@ export default function ReportSummary() {
     exportWorkSummaryReport(exportData, selectedMonth);
   };
 
+  const isReadOnly = user?.role === "billing";
+
   return (
     <div className="space-y-6 relative min-h-[400px]">
       <LoadingOverlay isLoading={isLoading} />
@@ -204,6 +206,7 @@ export default function ReportSummary() {
               </button>
             ))}
           </div>
+          {isReadOnly && <span className="text-xs text-muted-foreground italic">(計價人員唯讀模式)</span>}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 bg-slate-800 text-white hover:bg-slate-700">
@@ -320,7 +323,12 @@ export default function ReportSummary() {
                 <div className="border-b border-black pb-1 mx-4"></div>
                 <p className="font-bold text-sm">本人簽章</p>
               </div>
-              <div className="space-y-10">
+              <div className="space-y-10 relative">
+                {isReadOnly && (
+                  <div className="absolute inset-0 flex items-center justify-center -top-8 pointer-events-none">
+                    <span className="text-blue-600/20 font-black text-2xl border-4 border-blue-600/20 rounded-full px-4 py-1 rotate-12">核章通過</span>
+                  </div>
+                )}
                 <div className="border-b border-black pb-1 mx-4"></div>
                 <p className="font-bold text-sm">廠商核章</p>
               </div>
